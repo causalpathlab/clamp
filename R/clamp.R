@@ -126,30 +126,29 @@
 #'   residual variance. It is only relevant when
 #'   \code{estimate_residual_variance = TRUE}.
 #'
-#' @param refine If \code{refine = TRUE}, then an additional
-#'  iterative refinement procedure is used, after the IBSS algorithm,
-#'  to check and escape from local optima (see details).
-#'
 #' @param n_purity Passed as argument \code{n_purity} to
 #'   \code{\link{clamp_get_cs}}.
 #'
 #' @return A \code{"clamp"} object with some or all of the following
 #'   elements:
 #'
-#' \item{alpha}{An L by p matrix of posterior inclusion probabilites.}
+#' \item{alpha}{An maxL by p matrix of posterior inclusion probabilites.}
 #'
-#' \item{mu}{An L by p matrix of posterior means, conditional on
+#' \item{mu}{An maxL by p matrix of posterior means, conditional on
 #'   inclusion.}
 #'
-#' \item{mu2}{An L by p matrix of posterior second moments,
+#' \item{mu2}{An maxL by p matrix of posterior second moments,
+#'   conditional on inclusion.}
+#'
+#' \item{betahat}{An maxL by p matrix of maximum likelihood estimator,
 #'   conditional on inclusion.}
 #'
 #' \item{Xr}{A vector of length n, equal to \code{X \%*\% colSums(alpha
 #'   * mu)}.}
 #'
-#' \item{lbf}{log-Bayes Factor for each single effect.}
+#' \item{logBF}{log-Bayes Factor for each single effect.}
 #'
-#' \item{lbf_variable}{log-Bayes Factor for each variable and single effect.}
+#' \item{logBF_variable}{log-Bayes Factor for each variable and single effect.}
 #'
 #' \item{intercept}{Intercept (fixed or estimated).}
 #'
@@ -162,7 +161,11 @@
 #'   \dQuote{ELBO} (objective function to be maximized), achieved at
 #'   each iteration of the IBSS fitting procedure.}
 #'
-#' \item{fitted}{Vector of length n containing the fitted values of
+#' \item{importance_weight}{A vector of length n containing the importance
+#'   weights computed when applying the robust methods (or all 1 if
+#'   \code{robust_method="none"}.)}
+#'
+#' \item{fitted}{A vector of length n containing the fitted values of
 #'   the outcome.}
 #'
 #' \item{sets}{Credible sets estimated from model fit; see
@@ -178,11 +181,6 @@
 #' \item{converged}{\code{TRUE} or \code{FALSE} indicating whether
 #'   the IBSS converged to a solution within the chosen tolerance
 #'   level.}
-#'
-#' \code{susie_suff_stat} returns also outputs:
-#'
-#' \item{XtXr}{A p-vector of \code{t(X)} times the fitted values,
-#'   \code{X \%*\% colSums(alpha*mu)}.}
 
 #'
 #' @importFrom stats var
@@ -216,7 +214,6 @@ clamp <- function (X, y,
                    verbose = FALSE,
                    track_fit = FALSE,
                    residual_variance_lowerbound = var(drop(y))/1e4,
-                   refine = FALSE,
                    n_purity = 100) {
 
   # Process input estimate_prior_method.
