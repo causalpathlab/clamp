@@ -21,7 +21,7 @@ expit <- function(eta) {
 #' for each observation
 #' @keywords internal
 #'
-log_psdvariance_logistic <- function(eta) {
+log_pseudo_variance_logistic <- function(eta) {
   # Input \code{y} is not applied in this function.
 
   logw2 <- ifelse(eta > 1e2,
@@ -34,10 +34,10 @@ log_psdvariance_logistic <- function(eta) {
 #' for each observation
 #' @keywords internal
 #'
-psdresponse_logistic <- function(eta, y) {
+pseudo_response_logistic <- function(eta, y) {
 
   if (length(eta) != length(y))
-    stop("Dimensions of input eta and y do not match")
+    stop("Dimensions of input linear predictor eta and y do not match")
 
   prob <- expit(eta)                    # estimated probability
   logw2 <- compute_logw2_logistic(eta)  # log of pseudo-variance
@@ -51,19 +51,10 @@ psdresponse_logistic <- function(eta, y) {
 loglik_logistic <- function(eta, y) {
 
   if (dim(eta)[1] != length(y))
-    stop("Dimensions of input eta and y do not match")
+    stop("Dimensions of input linear predictor eta and y do not match")
 
   res <- ifelse(eta <= 500,
                 y * eta - log1p(exp(eta)),
                 y * eta - eta)  # for computational stability.
   return(res)
 }
-
-#' #' @keywords internal
-#' #'
-#' compute_loglik_apprx_logistic <- function(eta, y) {
-#'   logw2 <- compute_logw2_logistic(eta)  # log of pseudo-variance
-#'   zz <- compute_psdresponse_logistic(eta, y)  # pseudo-response
-#'   res <- - 1/2 * (eta - zz)^2 * exp(-logw2)
-#'   return(res)
-#' }
