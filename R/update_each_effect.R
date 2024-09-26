@@ -31,7 +31,7 @@ update_each_effect <- function (X, y, s, W=NULL,
   # The importance weights are assigned to each observation.
   # `s$importance_weight` should be an (n by 1) vector.
 
-  current_R <- y - compute_Xb(X, colSums(s$alpha * s$mu))
+  current_R <- y - s$Xr
 
   if (robust_method != "none" & robust_estimator == "S"){
     # Assign importance weight based on the residuals yielded from the
@@ -40,15 +40,12 @@ update_each_effect <- function (X, y, s, W=NULL,
                             robust_method = robust_method,
                             robust_estimator = robust_estimator,
                             previous_importance_weight = s$importance_weight)
-
   } else {
-
     ## robust_method == "none" | robust_estimator=="M"
     s$importance_weight <- robust_importance_weights(current_R,
                               robust_method = robust_method,
                               robust_estimator = robust_estimator)
   }
-
   if (!is.null(W)) {
     W <- sweep(W, 1, s$importance_weight, "*")
   } else {  ## is.null(W)
@@ -89,10 +86,10 @@ update_each_effect <- function (X, y, s, W=NULL,
       # s$KL[l]     = -res$loglik +
       #   SER_posterior_e_loglik(X,R,s$sigma2,res$alpha * res$mu,
       #                          res$alpha * res$mu2)
-      # s$Xr = s$Xr + compute_Xb(X,s$alpha[l,] * s$mu[l,])
-      s$Xr = compute_Xb(X, colSums(s$alpha * s$mu))  # linear predictor
-
-      current_R <- Rl - compute_Xb(X,s$alpha[l,] * s$mu[l,])  ##?!
+      current_R <- Rl - compute_Xb(X,s$alpha[l,] * s$mu[l,])
     }
+
+  s$Xr <- compute_Xb(X, colSums(s$alpha * s$mu))  # linear predictor
+
   return(s)
 }
