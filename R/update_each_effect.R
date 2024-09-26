@@ -1,4 +1,4 @@
-#' @title Update each effect once; each sub-model is a weighted SER.
+#' @title Update each effect once in linear model; each sub-model is a weighted SER.
 #' @param X An (n by p) matrix of regressor variables
 #' @param y An n vector of response variable
 #' @param s A clamp fit
@@ -58,11 +58,6 @@ update_each_effect <- function (X, y, s, W=NULL,
   if (maxL > 0)
     for (l in 1:maxL) {
 
-      # # Remove lth effect from fitted values.
-      # s$Xr = s$Xr - compute_Xb(X, s$alpha[l,] * s$mu[l,])
-      # # Compute residuals.
-      # R = y - s$Xr
-
       # Residuals belonging to layer l
       Rl <- current_R + compute_Xb(X, s$alpha[l,] * s$mu[l,])
 
@@ -75,7 +70,7 @@ update_each_effect <- function (X, y, s, W=NULL,
                                   optimize_prior_varB = estimate_prior_method,
                                   check_null_threshold = check_null_threshold)
 
-      # Update the variational estimate of the posterior mean.
+      # Update the variational estimate of the posterior distributions.
       s$mu[l,]        = res$mu
       s$mu2[l,]       = res$mu2
       s$alpha[l,]     = res$alpha
@@ -86,6 +81,8 @@ update_each_effect <- function (X, y, s, W=NULL,
       # s$KL[l]     = -res$loglik +
       #   SER_posterior_e_loglik(X,R,s$sigma2,res$alpha * res$mu,
       #                          res$alpha * res$mu2)
+
+      # Update the current residuals
       current_R <- Rl - compute_Xb(X,s$alpha[l,] * s$mu[l,])
     }
 
