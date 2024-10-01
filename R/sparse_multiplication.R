@@ -16,34 +16,35 @@ compute_Xb = function (X, b) {
 
   # When X is an ordinary sparse/dense matrix.
   scaled.Xb = tcrossprod(X,t(b/scaled_scale))
+  # scaled.Xb = X %*% (b/scaled_scale)
 
   # Center Xb.
   Xb = scaled.Xb - sum(scaled_center*b/scaled_scale)
   return(as.numeric(Xb))
 }
 
-# @title Computes t(standardized.X) %*% y using sparse multiplication trick
-# @param X an n by p unstandardized matrix with three attributes:
-# attr(X,"scaled:center"), attr(X,"scaled:scale") and attr(X,"d")
-# @param y an n vector
-# @return a p vector
+# # @title Computes t(standardized.X) %*% y using sparse multiplication trick
+# # @param X an n by p unstandardized matrix with three attributes:
+# # attr(X,"scaled:center"), attr(X,"scaled:scale") and attr(X,"d")
+# # @param y an n vector
+# # @return a p vector
+# #
+# #' @importFrom Matrix t
+# #' @importFrom Matrix crossprod
+# compute_Xty = function (X, y) {
+#   scaled_center = attr(X,"scaled:center")
+#   scaled_scale = attr(X,"scaled:scale")
+#   ytX = crossprod(y,X)
 #
-#' @importFrom Matrix t
-#' @importFrom Matrix crossprod
-compute_Xty = function (X, y) {
-  scaled_center = attr(X,"scaled:center")
-  scaled_scale = attr(X,"scaled:scale")
-  ytX = crossprod(y,X)
-
-  # Scale Xty.
-
-  # When X is an ordinary sparse/dense matrix.
-  scaled.Xty = t(ytX/scaled_scale)
-
-  # Center Xty.
-  centered.scaled.Xty = scaled.Xty - scaled_center/scaled_scale * sum(y)
-  return(as.numeric(centered.scaled.Xty))
-}
+#   # Scale Xty.
+#
+#   # When X is an ordinary sparse/dense matrix.
+#   scaled.Xty = t(ytX/scaled_scale)
+#
+#   # Center Xty.
+#   centered.scaled.Xty = scaled.Xty - scaled_center/scaled_scale * sum(y)
+#   return(as.numeric(centered.scaled.Xty))
+# }
 
 # @title Computes M %* %t(standardized.X) using sparse multiplication trick
 # @param M a L by p matrix
