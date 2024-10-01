@@ -74,11 +74,8 @@ weighted_single_effect_regression <-
       W <- rep(1, times = nrow(X))
     } else if (length(W) == nrow(X)) {  ## (n by 1) vector
       W <- as.numeric(W)
-    } else if (length(W) == nrow(X)*ncol(X)) {  ## (n by p) matrix
-      if (dim(W)[1] != nrow(X))
-        stop("Dimensions of the W do not match!")
-    } else {
-      stop("Dimensions of the W do not match!")
+    } else if (!all(dim(W) == dim(X))) {  ## (n by p) matrix
+      stop("Dimensions of W and X do not match!")
     }
 
     # Scale X
@@ -93,7 +90,6 @@ weighted_single_effect_regression <-
       XtWX <- colSums(X_ * X_ * W)
       XtWy <- colSums(sweep(X_ * W, 1, y, "*"))
     }
-    ## [Wrap up these matrix computation.]!
 
     shat2 <- residual_variance / XtWX
     betahat <- XtWy / XtWX  # = shat2 * XtWy
@@ -115,7 +111,8 @@ weighted_single_effect_regression <-
                                   alpha = NULL, post_mean2 = NULL,
                                   prior_varB_init = prior_varB,
                                   check_null_threshold = check_null_threshold)
-      }
+
+    }
 
     # compute log of Bayes factor (logBF) and log of posterior odds (logPO)
     # .loge <- function(t) log(t+.Machine$double.eps) (in `elbo.R`)
@@ -140,6 +137,7 @@ weighted_single_effect_regression <-
     post_mean <- prior_varB / (prior_varB + shat2) * XtWy / XtWX  # posterior mean
     post_mean2 <- post_var + post_mean^2                          # posterior second moment
 
+
     # ABF for WSER model
     logBF_model <- maxlogPO + log(sum(logPO_weighted))
     # = log(sum(ABF x prior_weights))
@@ -155,7 +153,6 @@ weighted_single_effect_regression <-
                 mu = post_mean,     # posterior mean
                 mu2 = post_mean2,   # posterior second moment
                 betahat = betahat,  # maximum likelihood estimator (MLE)
-                # shat2 = shat2,      # variance of MLE
                 logBF = logBF,      # layer-wise log of Bayes factor
                 logBF_model = logBF_model,  # log of Bayes factor of model
                 prior_varB = prior_varB  # prior variance of coefficients B
