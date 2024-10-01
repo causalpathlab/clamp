@@ -27,8 +27,8 @@ update_each_effect_glm <- function (X, y, s, W=NULL, model,
   robust_estimator <- match.arg(robust_estimator)
 
   # Check weight matrix W
-  if (!is.null(W) &
-      !(length(W) %in% c(nrow(X), nrow(X) * ncol(X))))
+  if ( !is.null(W) &
+      !( (length(W) == nrow(X)) | all(dim(W) == dim(X))  ) )
     stop("The dimension of W does not match with that of input X!")
 
   # Iterative Reweighted Least-Squared (IRLS) for generalized linear models

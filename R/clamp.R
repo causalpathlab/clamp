@@ -345,7 +345,7 @@ clamp <- function (X, y,
       W <- cbind(W, 1)
 
     # Check whether the dimensions of W and X match
-    if ((length(W) != nrow(X)) | any(dim(W) != dim(X)))
+    if (!( (length(W) == nrow(X)) | all(dim(W) == dim(X)) ))
       stop("The dimensions of W and input X do not match!")
   }
 

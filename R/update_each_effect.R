@@ -24,7 +24,7 @@ update_each_effect <- function (X, y, s, W=NULL,
 
   # Check weight matrix W
   if (!is.null(W) &
-      !(length(W) %in% c(nrow(X), nrow(X) * ncol(X))))
+      !( (length(W) == nrow(X)) | all(dim(W) == dim(X))  ) )
     stop("The dimension of W does not match with that of input X!")
 
   # Robust estimation regarding W/residuals.
