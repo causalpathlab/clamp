@@ -50,7 +50,7 @@ loglik_poisson <- function(X, y, s, eta_tol = 50){
   ## clip extremely large exp(eta)
   clipped_eta <- ifelse(eta > eta_tol, eta_tol, eta)
   # compute the log-likelihood
-  res <- y * eta - exp(clipped_eta) + lfactorial(y)
+  res <- y * eta - exp(clipped_eta) - lfactorial(y)
 
   return(res)
 }
