@@ -16,6 +16,7 @@ Eloglik_linear = function (X, Y, s) {
 
 # Expected squared residuals.
 # s$Xr is column sum of Xr_L
+# For family %in% c("logistic", "poisson"), Y is be the pseudo response.
 get_ER2 = function (X, Y, s) {
   Xr_L = compute_MXt(s$alpha * s$mu, X) # L by N matrix
   postb2 = s$alpha * s$mu2 # Posterior second moment.
