@@ -15,7 +15,7 @@ get_elbo = function (X, Y, s, W=NULL, model) {
                                     prior_varB.l = s$prior_varB[l])})
   revKL <- revKL[include_idx]
 
-  return(model$loglik(X,Y,s) + sum(revKL))  ##Eloglik!!
+  return(sum(model$loglik(X,Y,s)) + sum(revKL))  ##Eloglik!!
 }
 
 # to avoid log(0)...
