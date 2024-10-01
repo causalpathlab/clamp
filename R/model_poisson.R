@@ -10,8 +10,9 @@
 #'
 #' \code{log_pseudo_variance_poisson} computes the log of pseudo-variance of
 #' the Poisson regression model; \code{pseudo_response_poisson} computes the
-#' pseudo-response; and \code{loglik_poisson} computes the log-likelihood
-#' function.
+#' pseudo-response; \code{loglik_poisson} computes the log-likelihood
+#' function; and \code{inverse_link_poisson} computes the inverse of link
+#' function, i.e., the function of estimated expectation.
 #'
 #'
 #' @keywords internal
@@ -25,30 +26,40 @@ pseudo_response_poisson <- function(eta, y, eta_tol = -50) {
     stop("Dimensions of input eta and y do not match")
 
   ## clip extremely large exp(eta)
-  clip_eta <- ifelse(eta < eta_tol, eta_tol, eta)
+  clipped_eta <- ifelse(eta < eta_tol, eta_tol, eta)
 
-  return(eta + y * exp(-clip_eta) - 1)
+  return(eta + y * exp(-clipped_eta) - 1)
   # return(eta + y * exp(-eta) - 1)
 }
 
 
-loglik_poisson <- function(eta, y, eta_tol = 50) {
+#' returns an n-dim vector
+loglik_poisson <- function(X, y, s, eta_tol = 50){
 
-  if (length(eta) != length(y))
-    stop("Dimensions of input eta and y do not match")
+  # standardize X if applicable
+  X_ <- sweep(X,  2, attr(X, "scaled:center"), "-")  ## centralized
+  X_ <- sweep(X_, 2, attr(X, "scaled:scale"), "/")
+  # compute the linear predictor
+  eta <- tcrossprod(X_, t(colSums(s$alpha * s$mu)))
+
+  # The following lines should be equivalent:
+  # eta <- tcrossprod(X, t(colSums(s$alpha*s$mu) / attr(X, "scaled:scale"))) -
+  #   attr(X, "scaled:center") * (colSums(s$alpha*s$mu)/attr(X, "scaled:scale"))
+
 
   ## clip extremely large exp(eta)
-  clip_eta <- ifelse(eta > eta_tol, eta_tol, eta)
-
-  res <- y * eta - exp(clip_eta) + lfactorial(y)
+  clipped_eta <- ifelse(eta > eta_tol, eta_tol, eta)
+  # compute the log-likelihood
+  res <- y * eta - exp(clipped_eta) + lfactorial(y)
 
   return(res)
 }
 
+inverse_link_poisson <- function(eta, eta_tol=50) {
+  # ## clip extremely large exp(eta)
+  # clipped_eta <- ifelse(eta > eta_tol, eta_tol, eta)
 
-# compute_loglik_apprx_poisson <- function(eta, y) {
-#   logw2 <- compute_logw2_poisson(eta)
-#   zz <- compute_psdresponse_poisson(eta, y)  # pseudo-response
-#   res <- - 1 / 2 * (eta - zz)^2 * exp(-logw2)
-#   return(res)
-# }
+  return(exp(eta))
+}
+
+
