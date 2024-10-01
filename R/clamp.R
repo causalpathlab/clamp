@@ -280,6 +280,11 @@ clamp <- function (X, y,
       stop("Input y must not contain missing values")
   }
 
+  ## Check the column names of input X
+  if (is.null(colnames(X)))
+    colnames(X) <- paste0("X", 1:ncol(X))
+
+
   # Center and scale input.
   # Set three attributes for matrix X: attr(X,'scaled:center') is a
   # p-vector of column means of X if center=TRUE, a p vector of zeros
@@ -316,9 +321,9 @@ clamp <- function (X, y,
       const_index <- ncol(X)
       colnames(X)[const_index] <- "(Intercept)"
 
-      attr(X, "scaled:center") <- append(attr(X, "scaled:center"), 0)
-      attr(X, "scaled:scale") <- append(attr(X, "scaled:scale"), 1)
-      attr(X, "d") <- append(attr(X, "d"), n)
+      attr(X, "scaled:center") <- append(out$scaled_center, 0)
+      attr(X, "scaled:scale") <- append(out$scaled_scale, 1)
+      attr(X, "d") <- append(out$d, nrow(X))
 
       ## The input response will not be modified.
     }
@@ -416,23 +421,19 @@ clamp <- function (X, y,
 
     if (estimate_residual_variance) {
 
-      if (family == "linear") {
-        ## for linear regression models
+      if (family == "linear") {  ## for linear regression models
         s$sigma2 <- pmax(residual_variance_lowerbound,
                         estimate_residual_variance_fun(X,y,s))
-      } else {
 
-        ## for logistic and poisson regression models
+      } else { ## for logistic and poisson regression models
         psd_rsp <- model$pseudo_response(s$Xr, y)
         est_resid_var <- estimate_residual_variance_fun(X, psd_rsp, s)
-        print(paste("est_resid_var", est_resid_var))
+        s$sigma2 <- pmax(residual_variance_lowerbound, est_resid_var)
 
-        s$sigma2 <- pmax(residual_variance_lowerbound,
-                         est_resid_var)
+        print(paste("estimated_residual_variance:", est_resid_var))
       }
 
-      print(paste("Update:", s$sigma2))
-
+      print(paste("updated sigma2:", s$sigma2))
 
       if (s$sigma2 > residual_variance_upperbound) {
         s$sigma2 <- residual_variance_upperbound
@@ -489,7 +490,7 @@ clamp <- function (X, y,
   if (track_fit)
     s$trace = tracking
 
-  # SuSiE CS and PIP.
+  # Credible Sets and PIPs
   if (!is.null(coverage) && !is.null(min_abs_corr)) {
     s$sets = clamp_get_cs(s,coverage = coverage,X = X,
                                   min_abs_corr = min_abs_corr,
@@ -497,19 +498,14 @@ clamp <- function (X, y,
     s$pip = clamp_get_pip(s,prune_by_cs = FALSE,prior_tol = prior_tol)
   }
 
-  if (!is.null(colnames(X))) {
-    variable_names = colnames(X)
-    if (!is.null(null_weight)) {
-      variable_names[length(variable_names)] = "null"
-      names(s$pip) = variable_names[-p]
-    } else
-      names(s$pip)    = variable_names
-    colnames(s$alpha) = variable_names
-    colnames(s$mu)    = variable_names
-    colnames(s$mu2)   = variable_names
-    colnames(s$betahat) = variable_names
-    colnames(s$logBF_variable) = variable_names
-  }
+  # (Re)name the outputs
+  variable_names             <- colnames(X)
+  names(s$pip)               <- variable_names
+  colnames(s$alpha)          <- variable_names
+  colnames(s$mu)             <- variable_names
+  colnames(s$mu2)            <- variable_names
+  colnames(s$betahat)        <- variable_names
+  colnames(s$logBF_variable) <- variable_names
 
   # For prediction.
   s$X_column_scale_factors  <- attr(X,"scaled:scale")
