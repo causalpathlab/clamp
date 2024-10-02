@@ -50,12 +50,19 @@ init_setup <- function (n, p, maxL, family,
   if(is.null(residual_variance)) {
 
     if (family == "linear") {
-      ## for linear models, initialize residual_variance as varY
+
+      ## for linear models,
+      ## 1. initialize residual_variance as varY
       residual_variance = varY
+      ## 2. initialize prior_varB as follows...
       prior_varB = scaled_prior_variance * varY
+
     } else { ## if (family %in% c("logistic", "poisson"))
-      ## for generalized linear models, initialize residual_variance as 1
+
+      ## for generalized linear models,
+      ## 1. initialize residual_variance as 1
       residual_variance = 1
+      ## 2. initialize prior_varB as 1
       prior_varB = 1
     }
   }
