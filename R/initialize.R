@@ -42,14 +42,25 @@ init_setup <- function (n, p, maxL, family,
                         prior_inclusion_prob, null_weight, varY, standardize) {
   if (!is.numeric(scaled_prior_variance) || scaled_prior_variance < 0)
     stop("Scaled prior variance should be positive number")
+
   if (scaled_prior_variance > 1 && standardize)
     stop("Scaled prior variance should be no greater than 1 when ",
          "standardize = TRUE")
-  if(is.null(residual_variance))
-    residual_variance = varY
+
+  if(is.null(residual_variance)) {
+
+    if (family == "linear") {
+      ## for linear models, initialize residual_variance as varY
+      residual_variance = varY
+    } else { ## if (family %in% c("logistic", "poisson"))
+      ## for generalized linear models, initialize residual_variance as 1
+      residual_variance = 1
+    }
+  }
+
   if(is.null(prior_inclusion_prob)){
     prior_inclusion_prob = rep(1/p,p)
-  }else{
+  } else {
     if(all(prior_inclusion_prob == 0)){
       stop("Prior weight should greater than 0 for at least one variable.")
     }
