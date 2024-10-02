@@ -52,9 +52,11 @@ init_setup <- function (n, p, maxL, family,
     if (family == "linear") {
       ## for linear models, initialize residual_variance as varY
       residual_variance = varY
+      prior_varB = scaled_prior_variance * varY
     } else { ## if (family %in% c("logistic", "poisson"))
       ## for generalized linear models, initialize residual_variance as 1
       residual_variance = 1
+      prior_varB = 1
     }
   }
 
@@ -80,7 +82,7 @@ init_setup <- function (n, p, maxL, family,
            logBF  = rep(as.numeric(NA),maxL),
            logBF_variable = matrix(as.numeric(NA),maxL,p),
            sigma2 = residual_variance,           ## residual variance
-           prior_varB = scaled_prior_variance*varY,  ## prior variance of coefficients b
+           prior_varB = prior_varB,         ## prior variance of coefficients b
            pie    = prior_inclusion_prob)
   if (is.null(null_weight))
     s$null_index = 0
