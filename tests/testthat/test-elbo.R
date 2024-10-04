@@ -18,7 +18,6 @@ test_that("compute the evidence of lower bound (ELBO)", {
                   scaled_prior_variance=0.2,
                   residual_variance=1,
                   prior_inclusion_prob=NULL,
-                  null_weight=0,
                   as.numeric(var(y)),
                   standardize=TRUE)
   s <- init_finalize(s)

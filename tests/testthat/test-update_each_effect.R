@@ -20,7 +20,6 @@ test_that("update each effect of the weighted SER (without W)", {
                   scaled_prior_variance=0.2,
                   residual_variance=1,
                   prior_inclusion_prob=NULL,
-                  null_weight=0,
                   varY=as.numeric(var(y)),
                   standardize=TRUE)
   s <- init_finalize(s)
@@ -54,7 +53,6 @@ test_that("update each effect of the weighted SER (with unified W)", {
                   scaled_prior_variance=0.2,
                   residual_variance=1,
                   prior_inclusion_prob=NULL,
-                  null_weight=0,
                   varY=as.numeric(var(y)),
                   standardize=TRUE)
   s <- init_finalize(s)
