@@ -242,9 +242,7 @@ clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
     }
   }
 
-  null_index = 0
   include_idx = rep(TRUE,nrow(res$alpha))
-  if (!is.null(res$null_index)) null_index = res$null_index
   if (is.numeric(res$prior_varB)) include_idx = res$prior_varB > 1e-9
   # L x P binary matrix.
   status = in_CS(res$alpha, coverage)
@@ -278,9 +276,6 @@ clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
   } else {
     purity = NULL
     for (i in 1:length(cs)) {
-      if (null_index > 0 && null_index %in% cs[[i]])
-        purity = rbind(purity,c(-9,-9,-9))
-      else
         purity =
           rbind(purity,
                 matrix(get_purity(cs[[i]],X,Xcorr,squared,n_purity,use_rfast),1,3))
@@ -380,10 +375,6 @@ get_cs_correlation = function (res, X = NULL, Xcorr = NULL, max = FALSE) {
 clamp_get_pip = function (res, prune_by_cs = FALSE, prior_tol = 1e-9) {
 
   if (inherits(res,c("clamp", "susie"))) {
-
-    # Drop null weight columns.
-    if (!is.null(res$null_index) && res$null_index > 0)
-      res$alpha = res$alpha[,-res$null_index,drop=FALSE]
 
     # Drop the single-effects with estimated prior of zero.
     if (is.numeric(res$prior_varB))

@@ -24,8 +24,6 @@ summary.clamp = function (object, ...) {
   variables = data.frame(cbind(1:length(object$pip),object$pip,-1))
   colnames(variables) = c("variable","variable_prob","cs")
   rownames(variables) = NULL
-  if (object$null_index > 0)
-    variables = variables[-object$null_index,]
   if (!is.null(object$sets$cs)) {
     cs = data.frame(matrix(NA,length(object$sets$cs),5))
     colnames(cs) = c("cs","cs_logBF","cs_avg_r2","cs_min_r2","variable")
