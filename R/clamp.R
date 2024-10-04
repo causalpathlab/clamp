@@ -35,9 +35,6 @@
 #'   gives the prior probability that corresponding column of X has a
 #'   nonzero effect on the outcome, y.
 #'
-#' @param null_weight Prior probability of no effect (a number between
-#'   0 and 1, and cannot be exactly 1).
-#'
 #' @param standardize If \code{standardize = TRUE}, standardize the
 #'   columns of X to unit variance prior to fitting (or equivalently
 #'   standardize XtX and Xty to have the same effect). Note that
@@ -203,7 +200,6 @@ clamp <- function (X, y,
                    scaled_prior_variance = 0.2,
                    residual_variance = NULL,
                    prior_inclusion_prob = NULL,
-                   null_weight = 0,
                    standardize = TRUE,
                    intercept = TRUE,
                    estimate_residual_variance = TRUE,
@@ -257,7 +253,6 @@ clamp <- function (X, y,
       is.null(attr(X,"matrix.type")))
     stop("Input X must be a double-precision matrix, or a sparse matrix, or ",
          "a trend filtering matrix")
-  if (is.numeric(null_weight) && null_weight == 0) null_weight = NULL
 
   # Check input.
   if (anyNA(X))
@@ -348,7 +343,6 @@ clamp <- function (X, y,
                   scaled_prior_variance=scaled_prior_variance,
                   residual_variance=residual_variance,
                   prior_inclusion_prob=prior_inclusion_prob,
-                  null_weight=null_weight,
                   varY=as.numeric(var(y)),
                   standardize=standardize)
   s <- init_finalize(s)

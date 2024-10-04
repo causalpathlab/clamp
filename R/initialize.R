@@ -39,7 +39,7 @@ clamp_init_coef = function (coef_index, coef_value, p) {
 # Set default clamp initialization.
 init_setup <- function (n, p, maxL, family,
                         scaled_prior_variance, residual_variance,
-                        prior_inclusion_prob, null_weight, varY, standardize) {
+                        prior_inclusion_prob, varY, standardize) {
   if (!is.numeric(scaled_prior_variance) || scaled_prior_variance < 0)
     stop("Scaled prior variance should be positive number")
 
@@ -77,8 +77,8 @@ init_setup <- function (n, p, maxL, family,
   }
   if(length(prior_inclusion_prob) != p)
     stop("Prior weights must have length p")
-  if (p < maxL)
-    maxL = p
+  if (p < maxL) maxL = p
+
   s = list(family = family,
            alpha  = matrix(1/p,nrow = maxL,ncol = p),
            mu     = matrix(0,nrow = maxL,ncol = p),
@@ -91,11 +91,8 @@ init_setup <- function (n, p, maxL, family,
            sigma2 = residual_variance,           ## residual variance
            prior_varB = prior_varB,         ## prior variance of coefficients b
            pie    = prior_inclusion_prob)
-  if (is.null(null_weight))
-    s$null_index = 0
-  else
-    s$null_index = p
   class(s) = "clamp"
+
   return(s)
 }
 
