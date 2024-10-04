@@ -7,13 +7,22 @@
 #'   estimate prior variance
 #' @param check_null_threshold Float, a threshold on the log scale to
 #'   compare likelihood between current estimate and zero the null
-#' @param robust_method
-#' @param robust_estimator
+#' @param abnormal_proportion a value between 0 and 1. If the number of detected
+#'   abnormal subjects exceeds \eqn{abnormal_proportion * nrow(X)},
+#'   stop fitting the model.
+#' @param robust_method A string, whether and which robust method is applied
+#'   when fitting the model. \code{robust_method="none"} specifies that no
+#'   robust method is applied. \code{robust_method="huber"} specifies that the
+#'   Huber weighting method is applied.
+#' @param robust_estimator A string, which robust estimator is applied.
+#'   \code{robust_estimator="M"} indicates the M-estimator is applied, and
+#'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
-update_each_effect <- function (X, y, s, W=NULL,
+update_each_effect <- function (X, y, s, W=NULL, model,
                                 estimate_prior_variance = FALSE,
                                 estimate_prior_method = "optim",
-                                check_null_threshold,
+                                check_null_threshold = 0,
+                                abnormal_proportion = 0.5,
                                 robust_method = c("none", "huber"),
                                 robust_estimator = c("M", "S")) {
 
@@ -27,13 +36,39 @@ update_each_effect <- function (X, y, s, W=NULL,
       !( (length(W) == nrow(X)) | all(dim(W) == dim(X))  ) )
     stop("The dimension of W does not match with that of input X!")
 
+  # Compute the residuals
+  if (s$family == "linear") {
+
+    ## compute the residuals
+    current_R <- y - s$Xr
+
+    ## IRLS is not applicable for linear models,
+    ## for the consistency of codes, let irls_weight = 1
+    irls_weight <- rep(1, times = length(y))
+
+  } else { ## if (s$family %in% c("logistic", "poisson"))
+
+    # Iterative reweighted least-squared (IRLS) for generalized linear models
+
+    ## update the pseudo-response
+    psd_rsp <- model$pseudo_response(s$Xr, y)
+
+    ## update the overall log-pseudo-variance
+    log_psd_var <- model$log_pseudo_var(s$Xr)
+    ## a n-dim vector of weights yielded from IRLS
+    irls_weight <- exp(-log_psd_var)
+    ## check if there are any abnormal points based on irls_weight
+    s$abnormal_subjects <- check_abnormal_subjects(irls_weight)
+
+    ## compute the residuals
+    current_R <- psd_rsp - s$Xr
+  }
+
   # Robust estimation regarding W/residuals.
   # The importance weights are assigned to each observation.
   # `s$importance_weight` should be an (n by 1) vector.
-
-  current_R <- y - s$Xr
-
   if (robust_method != "none" & robust_estimator == "S"){
+
     # Assign importance weight based on the residuals yielded from the
     # previous iteration.
     s$importance_weight <- robust_importance_weights(current_R,
@@ -46,29 +81,50 @@ update_each_effect <- function (X, y, s, W=NULL,
                               robust_method = robust_method,
                               robust_estimator = robust_estimator)
   }
-  if (!is.null(W)) {
-    W <- sweep(W, 1, s$importance_weight, "*")
+
+  # Define the weight (matrix)
+  if (is.matrix(W)) {
+    WW <- sweep(W, 1, irls_weight * s$importance_weight, "*")
+  } else if (is.vector(W)) {
+    WW <- W * irls_weight * s$importance_weight
   } else {  ## is.null(W)
-    W <- s$importance_weight
+    WW <- irls_weight * s$importance_weight
   }
 
 
   # Repeat for each effect to update.
   maxL = nrow(s$alpha)
-  if (maxL > 0)
+  if (maxL > 0) {
+
+    # Remove abnormal points
+    if (length(s$abnormal_subjects) > abnormal_proportion * nrow(X)) {
+      stop("Too many abnormal subjected detected...")
+
+    } else {
+      X_sub         <- remove_abnormal_subjects(s$abnormal_subjects, X)
+      current_R_sub <- remove_abnormal_subjects(s$abnormal_subjects, current_R)
+      WW_sub         <- remove_abnormal_subjects(s$abnormal_subjects, WW)
+
+      ## inherit the attributes of X_sub from X
+      attr(X_sub, "scaled:scale")  <- attr(X, "scaled:scale")
+      attr(X_sub, "scaled:center") <- attr(X, "scaled:center")
+    }
+
+
+    # Update each effect
     for (l in 1:maxL) {
 
-      # Residuals belonging to layer l
-      Rl <- current_R + compute_Xb(X, s$alpha[l,] * s$mu[l,])
+      ## residuals belonging to layer l
+      Rl <- current_R + compute_Xb(X_sub, s$alpha[l,] * s$mu[l,])
 
-      # Fit WSER
-      res <- weighted_single_effect_regression(y=Rl, X=X,
-                                  W = W,
-                                  residual_variance = s$sigma2,
-                                  prior_inclusion_prob = s$pie,
-                                  prior_varB = s$prior_varB[l],
-                                  optimize_prior_varB = estimate_prior_method,
-                                  check_null_threshold = check_null_threshold)
+      ## fit the WSER
+      res <- weighted_single_effect_regression(y=Rl, X=X_sub,
+                                W = WW_sub,
+                                residual_variance = s$sigma2,
+                                prior_inclusion_prob = s$pie,
+                                prior_varB = s$prior_varB[l],
+                                optimize_prior_varB = estimate_prior_method,
+                                check_null_threshold = check_null_threshold)
 
       # Update the variational estimate of the posterior distributions.
       s$mu[l,]        = res$mu
@@ -83,10 +139,11 @@ update_each_effect <- function (X, y, s, W=NULL,
       #                          res$alpha * res$mu2)
 
       # Update the current residuals
-      current_R <- Rl - compute_Xb(X,s$alpha[l,] * s$mu[l,])
+      current_R <- Rl - compute_Xb(X_sub, s$alpha[l,] * s$mu[l,])
     }
 
-  s$Xr <- compute_Xb(X, colSums(s$alpha * s$mu))  # linear predictor
+    s$Xr <- compute_Xb(X, colSums(s$alpha * s$mu))  # update linear predictor
+  }
 
   return(s)
 }
