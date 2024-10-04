@@ -95,9 +95,14 @@
 #' @param abnormal_proportion a value between 0 and 1. If the number of detected
 #'   abnormal subjects exceeds \eqn{abnormal_proportion * nrow(X)},
 #'
-#' @param robust_method
+#' @param robust_method A string, whether and which robust method is applied
+#'   when fitting the model. \code{robust_method="none"} specifies that no
+#'   robust method is applied. \code{robust_method="huber"} specifies that the
+#'   Huber weighting method is applied.
 #'
-#' @param robust_estimator
+#' @param robust_estimator A string, which robust estimator is applied.
+#'   \code{robust_estimator="M"} indicates the M-estimator is applied, and
+#'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
 #' @param coverage A number between 0 and 1 specifying the
 #'   \dQuote{coverage} of the estimated confidence sets.
@@ -252,21 +257,7 @@ clamp <- function (X, y,
       is.null(attr(X,"matrix.type")))
     stop("Input X must be a double-precision matrix, or a sparse matrix, or ",
          "a trend filtering matrix")
-  if (is.numeric(null_weight) && null_weight == 0)
-    null_weight = NULL
-  # if (!is.null(null_weight) && is.null(attr(X,"matrix.type"))) {
-  #   if (!is.numeric(null_weight))
-  #     stop("Null weight must be numeric")
-  #   if (null_weight < 0 || null_weight >= 1)
-  #     stop("Null weight must be between 0 and 1")
-  #   if (missing(prior_inclusion_prob))
-  #     prior_inclusion_prob = c(rep(1/ncol(X) * (1 - null_weight),ncol(X)),
-  #                              null_weight)
-  #   else
-  #     prior_inclusion_prob = c(prior_inclusion_prob * (1-null_weight),
-  #                              null_weight)
-  #   X = cbind(X,0)
-  # }
+  if (is.numeric(null_weight) && null_weight == 0) null_weight = NULL
 
   # Check input.
   if (anyNA(X))
@@ -311,30 +302,33 @@ clamp <- function (X, y,
 
     ## Opt out: scaling X but not centralizing it.
     out = compute_colstats(X, center = standardize, scale = standardize)
-    attr(X,"scaled:center") = out$scaled_center
-    attr(X,"scaled:scale")  = out$scaled_scale
-    attr(X,"d") = out$d  ## applied in computing ERSS (`get_ER2()`)
 
     if (intercept) {  ## by default
 
-      X <- cbind(X, 1) ## add an all-one folumn representing the offset term
+      X <- cbind(X, 1)  ## add an all-one folumn representing the offset term
       const_index <- ncol(X)
       colnames(X)[const_index] <- "(Intercept)"
 
       attr(X, "scaled:center") <- append(out$scaled_center, 0)
       attr(X, "scaled:scale") <- append(out$scaled_scale, 1)
-      attr(X, "d") <- append(out$d, nrow(X))
+      attr(X, "d") <- append(out$d, nrow(X))  ## applied in computing ERSS (`get_ER2()`)
 
       ## The input response will not be modified.
+
+    } else { ## intercept = FALSE
+
+      attr(X,"scaled:center") = out$scaled_center
+      attr(X,"scaled:scale")  = out$scaled_scale
+      attr(X,"d") = out$d  ## applied in computing ERSS (`get_ER2()`)
     }
   }
 
   n <- nrow(X)
   p <- ncol(X)
-  # if (p > 1000 & !requireNamespace("Rfast",quietly = TRUE))
-  #   warning_message("For an X with many columns, please consider installing",
-  #                   "the Rfast package for more efficient credible set (CS)",
-  #                   "calculations.", style='hint')
+  if (p > 1000 & !requireNamespace("Rfast",quietly = TRUE))
+    warning_message("For an X with many columns, please consider installing",
+                    "the Rfast package for more efficient credible set (CS)",
+                    "calculations.", style='hint')
 
 
   # Check weight matrix W
@@ -350,26 +344,14 @@ clamp <- function (X, y,
   }
 
   # Initialize clamp fit.
-  if (family == "linear") {
-    s <- init_setup(n=n, p=p, maxL=maxL, family=family,
-                    scaled_prior_variance=scaled_prior_variance,
-                    residual_variance=residual_variance,
-                    prior_inclusion_prob=prior_inclusion_prob,
-                    null_weight=null_weight,
-                    varY=as.numeric(var(y)),
-                    standardize=standardize)
-
-  } else { # family %in% c("logistic", "poisson")
-    s <- init_setup(n=n, p=p, maxL=maxL, family=family,
-                    scaled_prior_variance=scaled_prior_variance,
-                    residual_variance=1,  # for IRLS
-                    prior_inclusion_prob=prior_inclusion_prob,
-                    null_weight=null_weight,
-                    varY=1/scaled_prior_variance,  # for s$prior_varB (init)
-                    standardize=standardize)
-  }
+  s <- init_setup(n=n, p=p, maxL=maxL, family=family,
+                  scaled_prior_variance=scaled_prior_variance,
+                  residual_variance=residual_variance,
+                  prior_inclusion_prob=prior_inclusion_prob,
+                  null_weight=null_weight,
+                  varY=as.numeric(var(y)),
+                  standardize=standardize)
   s <- init_finalize(s)
-  # print(s)
 
   # Initialize elbo to NA.
   elbo = rep(as.numeric(NA),max_iter + 1)
@@ -386,22 +368,13 @@ clamp <- function (X, y,
     if (track_fit)
       tracking[[tt]] = clamp_slim(s)
 
-    if (s$family == "linear") {
-      s <- update_each_effect(X=X, y=y, s=s, W=W,
-                              estimate_prior_variance = estimate_prior_variance,
-                              estimate_prior_method = estimate_prior_method,
-                              check_null_threshold = check_null_threshold,
-                              robust_method = robust_method,
-                              robust_estimator = robust_estimator)
-    } else {
-      s <- update_each_effect_glm(X=X, y=y, s=s, W=W, model=model,
-                                  estimate_prior_variance = estimate_prior_variance,
-                                  estimate_prior_method = estimate_prior_method,
-                                  check_null_threshold = check_null_threshold,
-                                  abnormal_proportion = abnormal_proportion,
-                                  robust_method = robust_method,
-                                  robust_estimator = robust_estimator)
-    }
+    s <- update_each_effect(X=X, y=y, s=s, W=W, model=model,
+                          estimate_prior_variance = estimate_prior_variance,
+                          estimate_prior_method = estimate_prior_method,
+                          check_null_threshold = check_null_threshold,
+                          abnormal_proportion = abnormal_proportion,
+                          robust_method = robust_method,
+                          robust_estimator = robust_estimator)
 
     # Compute objective before updating residual variance because part
     # of the objective s$kl has already been computed under the
@@ -427,13 +400,12 @@ clamp <- function (X, y,
 
       } else { ## for logistic and poisson regression models
         psd_rsp <- model$pseudo_response(s$Xr, y)
-        est_resid_var <- estimate_residual_variance_fun(X, psd_rsp, s)
-        s$sigma2 <- pmax(residual_variance_lowerbound, est_resid_var)
-
-        print(paste("estimated_residual_variance:", est_resid_var))
+        s$sigma2 <- pmax(residual_variance_lowerbound,
+                         estimate_residual_variance_fun(X, psd_rsp, s))
       }
 
-      print(paste("updated sigma2:", s$sigma2))
+      # if (verbose)
+      #   print(paste("updated sigma2:", s$sigma2))
 
       if (s$sigma2 > residual_variance_upperbound) {
         s$sigma2 <- residual_variance_upperbound
@@ -473,9 +445,9 @@ clamp <- function (X, y,
   } else {  # if (family %in% c("logistic", "poisson"))
 
     if (intercept) {
-      s$intercept <- colSums(s$alpha*s$mu)[p] -
-        sum( attr(X,"scaled:center")[-p] *
-               (colSums(s$alpha*s$mu)/attr(X,"scaled:scale"))[-p] )
+      s$intercept <- colSums(s$alpha*s$mu)[p] # -
+        # sum( attr(X,"scaled:center")[-p] *
+        #        (colSums(s$alpha*s$mu)/attr(X,"scaled:scale"))[-p] )
 
     } else {
       s$intercept <- 0
