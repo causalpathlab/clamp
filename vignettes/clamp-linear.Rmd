@@ -1,5 +1,5 @@
 ---
-title: "clamp-linear"
+title: "Fit a linear model"
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{clamp-linear}
@@ -10,10 +10,63 @@ vignette: >
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>",
+  fig.width = 5, fig.height = 4, fig.align = "center", fig.cap = "&nbsp;", 
+  dpi = 120
 )
 ```
 
-```{r setup}
-library(clamp)
+```{r setup, message=FALSE}
+# library(clamp)
+
+source.dir <- "~/Dropbox/paper-causal.susie/codes/clamp/R"
+file.sources <- list.files(source.dir, full.names = T, pattern="*.R")
+sapply(file.sources, source, .GlobalEnv)
 ```
+
+## A simple example: independent synthetic input $X$
+
+```{r}
+set.seed(12345)
+pp <- 100
+nn <- 1000
+n_effect_vars <- 5
+
+X <- matrix(rnorm(nn * pp), nrow = nn)
+bb <- rnorm(n_effect_vars) 
+effect_indices <- sort(sample.int(pp, size = n_effect_vars))
+
+y <- X[, effect_indices, drop=F] %*% as.matrix(bb) + rnorm(nn)
+```
+
+```{r}
+## Effect variables and the corresponding effect sizes
+data.frame(index = effect_indices, size = bb)
+```
+
+Fit the linear model with `clamp()`
+
+```{r}
+res_cl <- clamp(X, y, standardize = F)
+```
+
+```{r}
+summarize_coefficients(res_cl)
+```
+
+```{r}
+plot(res_cl$elbo)
+```
+
+
+The fitted result should be equivalent to `susieR::susie()`: 
+
+```{r}
+res_su <- susieR::susie(X, y, standardize = F)
+summarize_coefficients(res_su)
+```
+
+```{r}
+plot(res_su$elbo)
+```
+
