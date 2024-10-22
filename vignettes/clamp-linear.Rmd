@@ -18,10 +18,7 @@ knitr::opts_chunk$set(
 
 ```{r setup, message=FALSE}
 # library(clamp)
-
-source.dir <- "~/Dropbox/paper-causal.susie/codes/clamp/R"
-file.sources <- list.files(source.dir, full.names = T, pattern="*.R")
-sapply(file.sources, source, .GlobalEnv)
+devtools::load_all(".")
 ```
 
 ## A simple example: independent synthetic input $X$
@@ -55,7 +52,7 @@ summarize_coefficients(res_cl)
 ```
 
 ```{r}
-plot(res_cl$elbo)
+plot(res_cl$elbo, type = "b")
 ```
 
 
@@ -67,6 +64,12 @@ summarize_coefficients(res_su)
 ```
 
 ```{r}
-plot(res_su$elbo)
+plot(res_su$elbo, type = "b")
 ```
 
+
+```{r}
+par(mfrow=c(1,2))
+plot(res_cl$elbo, type = "b", main = "CLAMP")
+plot(res_su$elbo, type = "b", main = "SusieR")
+```

@@ -1,19 +1,142 @@
 ---
-title: "clamp-linear-causal"
+title: "Finding causal variables using a linear regression based CLAMP model"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{clamp-linear-ipw}
+  %\VignetteIndexEntry{clamp-linear-causal}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>"
+  collapse = TRUE, comment = "#>",
+  fig.width = 5, fig.height = 4, fig.align = "center", fig.cap = "&nbsp;", 
+  dpi = 120
 )
 ```
 
 ```{r setup}
-library(clamp)
+# library(clamp)
+devtools::load_all(".")
+library(matrixStats)
+library(corrplot)
 ```
+
+
+## An example
+
+```{r}
+set.seed(107107)
+nn <- 800
+pp <- 1000
+U <- rnorm(nn)
+# zeta <- ((1:pp) -5.5) / 6
+zeta <- rnorm(pp, sd = 1)
+# zeta <- rep(0, times = pp)
+# hist(zeta)
+delta <- matrix(rnorm(nn*pp, 0, 0.1), nrow=nn)
+UU <- (outer(U, zeta) + delta)[, , drop=F]
+
+Pmat <- expit(UU)  # Prob matrix
+hist(cor(Pmat))
+# hist(Pmat)
+# corrplot(cor(Pmat), type = "upper")
+```
+
+```{r}
+X <- sapply(1:pp, function(j) {rbinom(nn, 1, Pmat[,j])})
+X <- apply(X, 2, as.double)
+esp <- rnorm(nn)
+
+causal_vars <- sample.int(pp, size = 3)
+# (coefs <- rnorm(4))
+coefs <- rep(1, times = length(causal_vars) + 1)
+# y <- coefs[1]*X[,1] + coefs[2]*X[,2] + coefs[3]*X[,10] + coefs[4]*U + esp
+y <- cbind(X[, causal_vars, drop=F], U) %*% as.matrix(coefs) + esp
+
+print(data.frame(variable = c(paste0("X", causal_vars), "U"), 
+                 effect_size = coefs))
+```
+
+
+
+### Step 1: estimate the propensity scores and construct the weight matrix
+
+```{r estimate ps}
+# PS <- matrix(nrow = nrow(X), ncol = ncol(X))
+PS <- apply(X, 2, 
+            function(xcol) predict(glm(xcol ~ U, family = binomial), type = "response"))
+```
+
+```{r}
+hist(as.numeric(PS), main = "Estimated propensity")
+# apply(PS, 2, function(x){sum(x<= 0.1 | x >= 0.9)})
+range(PS)
+```
+
+```{r}
+Wmat <- ifelse(X == 1, 1/PS, 1/(1-PS))
+range(Wmat)
+```
+
+## Step 2: fit a clamp model
+
+```{r}
+res_cl <- clamp(X, y, W=Wmat, family = "linear", 
+                # standardize = F, 
+                robust_method = "huber",
+                verbose = F)
+```
+
+```{r}
+clamp_plot(res_cl, y = "PIP", effect_indices = causal_vars)
+summarize_coefficients(res_cl)
+```
+
+
+```{r}
+cor(Pmat[, causal_vars, drop=F], Pmat[, c(8, 849, 316, 638, 779, 232)])
+```
+
+```{r}
+sub_idx <- c(causal_vars, 8, 849, 316, 638, 779, 232)
+Xsub <- X[, sub_idx, drop=F]
+Wsub <- Wmat[, sub_idx, drop=F]
+res_cl2 <- clamp(Xsub, y, Wsub, family = "linear")
+
+summarize_coefficients(res_cl2)
+```
+
+
+
+
+## Bootstrap 
+
+Whenever we run the bootstrap trials to check false discoveries, 
+we need to re-compute the 
+
+```{r}
+B <- 100
+pip_boot <- matrix(NA_real_, nrow = B, ncol = pp)
+
+for ( b in 1:B ) {
+  bootidx <- sample(nrow(X), replace = T)
+  
+  Xboot <- X[bootidx, , drop=F]
+  Uboot <- U[bootidx]
+  
+  PSboot <- apply(Xboot, 2, 
+                    function(x) predict(glm(x ~ Uboot, family = binomial),
+                                        type = "response"))
+  Wmatboot <- ifelse(Xboot == 1, 1/PSboot, 1/(1-PSboot))
+  
+  res_cl_boot <- clamp(Xboot, y[bootidx], 
+                       W = Wmatboot,
+                       # maxL = 5, 
+                       family = "linear")
+  
+  # summarize_coefficients(res_cl_boot)
+  pip_boot[b, ] <- clamp_get_pip(res_cl_boot)
+}
+```
+

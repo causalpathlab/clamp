@@ -18,10 +18,9 @@ knitr::opts_chunk$set(
 
 ```{r setup, message = FALSE}
 # library(clamp)
-
-source.dir <- "~/Dropbox/paper-causal.susie/codes/clamp/R"
-file.sources <- list.files(source.dir, full.names = T, pattern="*.R")
-sapply(file.sources, source, .GlobalEnv)
+devtools::load_all(".")
+library(matrixStats)
+# library(corrplot)
 ```
 
 > This document is copied from `gsusie`. 

@@ -18,10 +18,8 @@ knitr::opts_chunk$set(
 
 ```{r setup, message=FALSE}
 # library(clamp)
-
-source.dir <- "~/Dropbox/paper-causal.susie/codes/clamp/R"
-file.sources <- list.files(source.dir, full.names = T, pattern="*.R")
-sapply(file.sources, source, .GlobalEnv)
+devtools::load_all(".")
+library(matrixStats)
 ```
 
 In this vignette, we show how to apply the `clamp()` function on a Poisson
@@ -153,6 +151,8 @@ summarize_coefficients(res_cl)
 ```
 
 True effect variables (`X51`, `X142`, and `X720`) are detected with high PIPs. 
+
+
 
 ### Credible sets (CS)
 
@@ -311,3 +311,33 @@ y <- exp(log1p(y))
 and then the new $y$ is plugged into the `clamp` function to fit a clamp model. 
 This transformation on $y$ is particularly beneficial in reducing the chance of 
 failure in model fitting. 
+
+
+
+
+
+## Example 0: Synthetic data
+
+```{r}
+set.seed(123)
+nn <- 1000
+pp <- 50
+
+n_effect_vars <- 3
+effect_idx <- sample.int(pp, size = n_effect_vars)
+# coefs <- rnorm(n_effect_vars)
+coefs <- rep(0.5, times = n_effect_vars)
+print(data.frame(effect_vars = effect_idx, effect_size = coefs))
+
+X <- matrix(rnorm(nn*pp), nrow = nn)
+
+Eta <- X[, effect_idx, drop=F] %*% as.matrix(coefs)
+
+Y <- rpois(nn, exp(Eta))
+hist(Y)
+
+res_cl <- clamp(X, Y, family = "poisson",
+                standardize = F)
+summarize_coefficients(res_cl)
+```
+
