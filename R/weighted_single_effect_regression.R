@@ -137,6 +137,9 @@ weighted_single_effect_regression <-
     post_mean <- prior_varB / (prior_varB + shat2) * XtWy / XtWX  # posterior mean
     post_mean2 <- post_var + post_mean^2                          # posterior second moment
 
+    # print(data.frame(alpha = alpha, betahat = betahat, shat2 = shat2,
+    #                  post_mean = post_mean, post_var = post_var))
+
 
     # ABF for WSER model
     logBF_model <- maxlogPO + log(sum(logPO_weighted))
