@@ -347,6 +347,7 @@ clamp <- function (X, y,
                   standardize=standardize)
   s <- init_finalize(s)
 
+
   # Initialize elbo to NA.
   elbo = rep(as.numeric(NA),max_iter + 1)
   elbo[1] = -Inf;
