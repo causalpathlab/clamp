@@ -1,0 +1,305 @@
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
+---
+
+# Fig. 1b. Example of propensity models
+
+```{r, include = F, message = F}
+library(tidyverse)
+```
+
+The propensity score is defined as the probability of the treatment $X$
+conditional on the baseline covariates.
+
+In the task of reducing the confounding effects, the propensity score
+$e_i$ of individual $i$ is defined as
+
+$$
+e(x) := \operatorname{P}(X=x|U = u), 
+$$
+
+where $U$ is the confounder, and $(x, u)$ are the values of the
+treatment $X$ and the confounder $U$.
+
+## Example 1: Binary treatment $X$
+
+If $X$ is a binary treatment, i.e., $X=0, 1$, we can fit a logistic
+regression model to predict the propensity score.
+
+We define the propensity model as:
+
+$$
+e = \operatorname{Pr}(X=1|U = u) = \frac{1}{1 + e^{-\zeta}},
+$$
+
+where $\zeta$ is the linear predictor given by
+$\zeta  = \xi_0 + \xi u + \epsilon$, and
+$\epsilon \sim N(0, \sigma_u^2)$ is the random error.
+
+Thus, accordingly, the estimated propensity score of individual $i$ is
+given by
+
+$$
+\hat{e}_i := \frac{1}{1 + e^{-\hat{\zeta}_i}}, 
+$$
+
+with $\hat{\zeta}_i = \hat{\xi}_0 + \hat{\xi}_1 u_i$.
+
+Here is an example of estimating the propensity score of a binary
+treatment.
+
+```{r, fig.width=6, fig.height=6}
+## =================================
+## ========= generate data =========
+expit <- function(x) {
+  ifelse(x > 0, 1 / (1 + exp(-x)), exp(x) / (1 + exp(x)))
+}
+
+set.seed(123123)
+nn <- 1000
+U <- rnorm(nn)
+true_xi <- c(1, -1)
+zeta <- cbind(1, U) %*% as.matrix(true_xi) + rnorm(nn, sd = 0.5)
+prob <- expit(zeta)
+X <- rbinom(nn, 1, prob)
+
+## ===================================================
+## ========= fit a logistic regression model =========
+ps_model <- glm(X ~ U, family = binomial)
+summary(ps_model)
+est_ps <- predict(ps_model, type = "response")
+
+## =========================================================================
+## ========= compare the estimate propensity score with the true probability
+Fig1b1 <- data.frame(prob = prob, est_ps = est_ps) %>% 
+  ggplot(aes(x = prob, y = est_ps)) + 
+  geom_point() + 
+  theme_minimal() + 
+  labs(x = "True Probability", y = "Estimated Propensity Score")
+Fig1b1
+## save plot
+# ggsave(file = "Fig1b1.pdf", plot = Fig1b1,width = 7, height = 7, 
+#        path = "../../../FIGURE")
+```
+
+## Example 2: Categorical $X$
+
+In genetics studies, most commonly the input $X$ is the genotype data in
+which each variable indicates a single-nucleotide polymorphism (SNP). In
+this case, the value of $X$ is 0, 1, or 2.
+
+### Option 1: Proportional odds model
+
+[@zhao2018] proposed that, 
+if we consider each $X$ as an ordered categorical variable, 
+we can model the propensity score using the
+proportional odds model (ordered logit model):
+
+$$
+\operatorname{logit} \operatorname{Pr}(X \leq k|U)  
+= \log \frac{\operatorname{Pr}(X \leq k|U)}{1 - \operatorname{Pr}(X \leq k|U)}
+= \xi_{0k} - \xi_1 U, 
+$$
+
+where $k=0, 1$. 
+Notice that $\operatorname{Pr}(X\leq 0|U) = \operatorname{Pr}(X=0|U)$ 
+and $\operatorname{Pr}(X\leq 1|U) = \operatorname{Pr}(X=0|U) + \operatorname{Pr}(X=1|U) = 1 - \operatorname{Pr}(X=2|U)$. 
+Accordingly, we have
+
+$$
+\operatorname{Pr}(X=0|U) = 
+\frac{\exp(\xi_{00}-\xi_1 U)}{1 + \exp(\xi_{00}-\xi_1 U)},
+$$
+
+$$
+\operatorname{Pr}(X=2|U) = \frac{1}{1 + \exp(\xi_{01} - \xi_1 U)},
+$$
+
+and 
+
+$$
+\operatorname{Pr}(X=1|U) = 1 - \operatorname{Pr}(X=0|U) - \operatorname{Pr}(X=2|U).
+$$
+
+[wikipedia](https://en.wikipedia.org/wiki/Ordered_logit) The
+assumption of proportional odds states that the difference between 
+the logarithm of odds of "category $k_1$ or less" and "category $k_2$ or less"
+is independent of $U$. 
+
+Here is an example of a synthetic data set:
+
+```{r, message=F, fig.width=6, fig.height=6}
+library(MASS)
+
+## =================================
+## ========= generate data =========
+
+# PropOddsProbs <- function(u, xi00, xi01, xi1) {
+#   eta0 <- xi00 - xi1 * u
+#   eta1 <- xi01 - xi1 * u
+#   p0 <- ifelse( eta0 > 0, 1 / (1+exp(-eta0)), exp(eta0) / (1+exp(eta0)) )
+#   p2 <- ifelse( eta1 > 0, exp(-eta1) / (1 + exp(-eta1)),  1 / (1+exp(eta1)) )
+#   p1 <- 1 - p0 - p2
+#   return(data.frame(p0 = p0, p1 = p1, p2 = p2))
+# }
+
+set.seed(123123)
+nn <- 1000      # sample size
+U <- rnorm(nn)  # confounder
+
+# probability matrix
+xi00 <- -1
+xi01 <- 1
+xi1  <- 1
+eta0 <- xi00 - xi1 * U + rnorm(nn, sd = 0.1)  ## add additional random errors
+eta1 <- xi01 - xi1 * U + rnorm(nn, sd = 0.1)  ## add additional random errors
+p0 <- ifelse( eta0 > 0, 1 / (1+exp(-eta0)), exp(eta0) / (1+exp(eta0)) )
+p2 <- ifelse( eta1 > 0, exp(-eta1) / (1 + exp(-eta1)),  1 / (1+exp(eta1)) )
+p1 <- 1 - p0 - p2
+probs <- data.frame(p0 = p0, p1 = p1, p2 = p2)
+# probs <- PropOddsProbs(U, Xi00, Xi01, Xi1)
+Xorg <- t(apply(as.matrix(1:nrow(probs)), 1, 
+                function(r)rmultinom(1, 1, probs[r, ])))
+# Xorg[,k] indicates class k, k=0, 1, 2.
+X <- as.factor(ifelse(Xorg[,1] == 1, 0, 
+                      ifelse(Xorg[,2] == 1, 1, 2))) # aggregate Xorg as X
+# table(X)
+rm(eta0, eta1, p0, p1, p2, Xorg)
+
+## ==============================================
+## ========= fit an ordered logit model =========
+ps_model <- polr(X ~ U, method = "logistic")
+summary(ps_model)
+ps <- predict(ps_model, type = "probs")
+
+## =========================================================================
+## ========= compare the estimate propensity score with the true probability
+plt <- list()
+for (ii in 0 : 2) {
+  plt[[ii+1]] <- data.frame(probs, ps, X) %>%
+    # filter(X == ii) %>%
+    dplyr::select(probs = paste0("p", ii), ps = paste0("X", ii))  %>%
+    ggplot(aes(x = probs, y = ps)) +
+    geom_point() +
+    labs(x = "Probability", y = "Estimated propensity score", 
+         title = paste("X =", ii)) +
+    theme_minimal()
+  
+  ggsave(file = paste0("Fig1b2_cl", ii, ".pdf"), width=7, height=7,
+         path = "../../../FIGURE")
+}
+plt
+```
+
+
+
+
+
+### Option 2: Multinomial regression model
+
+A **multinomial regression model** is suitable when the dependent variable $X$
+is categorical but without a particular order. 
+It is an extension of binomial logistic regression model, 
+as it in fact chooses one outcome out of $K$ possible outcomes as a pivot and 
+then the other $K-1$ outcomes are regressed against the pivot outcome separately. 
+
+For example, in our case, we choose $X=2$ as the pivot, 
+then we consider fitting the two regression models:
+
+$$
+\log \frac{\operatorname{Pr}(X=k|U)}{\operatorname{Pr}(X=2|U)} 
+= \xi_{0k} + \xi_{1k} U, \ k=0,1.
+$$
+
+Then, by using the fact that $\sum_{k=0}^2 \operatorname{Pr}(X=k|U)=1$, 
+we have 
+
+$$
+\operatorname{Pr}(X=2|U) = \frac{1}{1 + \sum_{j=0}^1 \exp(\xi_{0j}+\xi_{1j}U)}, 
+$$
+
+and 
+
+$$
+\operatorname{Pr}(X=k|U) = 
+\frac{\exp(\xi_{0k}+\xi_{1k}U)}{1 + \sum_{k=0}^1 \exp(\xi_{0j}+\xi_{1j}U)}, \ k=0,1.
+$$
+
+Here is an example: 
+
+```{r, message=F, fig.width=6, fig.height=6}
+library(nnet)
+
+## =================================
+## ========= generate data =========
+# MultinomProbs <- function(u, xi00, xi01, xi10, xi11) {
+#   eta0 <- xi00 + xi01 * u
+#   eta1 <- xi10 + xi11 * u
+#   p2 <- 1 / (1 + exp(eta0) + exp(eta1))
+#   p0 <- exp(eta0) * p2
+#   p1 <- exp(eta1) * p2
+#   return(data.frame(p0 = p0, p1 = p1, p2 = p2))
+# }
+
+set.seed(1231234)
+nn <- 1000  # sample size
+U <- rnorm(nn)  # confounder
+
+xi00 <- -0.5
+xi01 <- 0.5
+xi10 <- 0.5
+xi11 <- -0.5
+eta0 <- xi00 + xi01 * U + rnorm(nn, sd = 0.1)  # add additional random error
+eta1 <- xi10 + xi11 * U + rnorm(nn, sd = 0.1)  # add additional random error
+p2 <- 1 / (1 + exp(eta0) + exp(eta1))
+p0 <- exp(eta0) * p2
+p1 <- exp(eta1) * p2
+probs <- data.frame(p0 = p0, p1 = p1, p2 = p2)
+# xi <- c(xi00 = -0.8, xi01 = 0.8, xi10 = 0.5, xi11 = -0.5)
+# probs <- MultinomProbs(U, xi["xi00"], xi["xi01"], xi["xi10"], xi["xi11"])
+
+
+Xorg <- t(apply(as.matrix(1:nrow(probs)), 1, 
+             function(r)rmultinom(1, 1, probs[r, ])))
+# Xorg[,k] indicates class k, k=0, 1, 2. 
+X <- as.factor(ifelse(Xorg[,1] == 1, 0, 
+                      ifelse(Xorg[,2] == 1, 1, 2))) # aggregate Xorg as X
+# table(X)
+rm(eta0, eta1, p0, p1, p2, Xorg)
+
+## =================================================
+## ========= fit a multinomial logit model =========
+ps_model <- multinom(X ~ U)
+summary(ps_model)
+ps <- predict(ps_model, type = "probs")
+
+## =========================================================================
+## ========= compare the estimate propensity score with the true probability
+plt <- list()
+for (ii in 0 : 2) {
+  plt[[ii+1]] <- data.frame(probs, ps, X) %>%
+    filter(X == ii) %>%
+    dplyr::select(probs = paste0("p", ii), ps = paste0("X", ii))  %>%
+    ggplot(aes(x = probs, y = ps)) +
+    geom_point() +
+    labs(x = "Probability", y = "Estimated propensity score", 
+         title = paste("X =", ii)) +
+    theme_minimal()
+  
+  ggsave(file = paste0("Fig1b3_cl", ii, ".pdf"), width=7, height=7,
+         path = "../../../FIGURE")
+}
+plt
+```
+
+
+
+### Option 3: Poisson regression model
+
+Another method is that we can fit a **Poisson regression model**.
+Not suggested?
+
+
