@@ -92,32 +92,31 @@ clamp_plot <- function (model, y,
 
   if (y == "PIP"){
     if (is_clamp)
-      p <- model$pip
+      yy <- model$pip
     else
-      p <- model
+      yy <- model
   } else if (y == "log10PIP") {
     if (is_clamp)
-      p <- log10(model$pip)
+      yy <- log10(model$pip)
     else
-      p <- log10(model)
+      yy <- log10(model)
     ylab <- "log10(PIP)"
   } else {
     if (is_clamp){
       stop("Please specify y for the plot.")
     }
-    p <- model
+    yy <- model
   }
-  if (!include_intercept){
-    if (model$family == "linear" & is.null(intercept_index)) {
-      stop("To remove the intercept, please specify its index...")
-    } else if (model$family %in% c("logistic", "poisson")) {
+
+  if (!include_intercept) {
+    if (model$family %in% c("logistic", "poisson")) {
       intercept_index <- length(model$pip)
+      yy <- yy[-intercept_index]
     }
-    p <- p[-intercept_index]
   }
 
   if(is.null(pos))
-    pos <- 1:length(p)
+    pos <- 1:length(yy)
   start <- 0
   if (inherits(pos, "list")) {
 
@@ -133,11 +132,11 @@ clamp_plot <- function (model, y,
 
     # Add zeros to alpha and p.
     alpha <- matrix(0,nrow(model$alpha),end - start + 1)
-    new_p <- rep(min(p),end - start + 1)
+    new_yy <- rep(min(yy),end - start + 1)
     pos_with_value <- model[[pos$attr]] - start + 1
-    new_p[pos_with_value] <- p
+    new_yy[pos_with_value] <- yy
     alpha[,pos_with_value] <- model$alpha
-    p <- new_p
+    yy <- new_yy
     model$alpha <- alpha
 
     # Adjust model$cs.
@@ -149,9 +148,9 @@ clamp_plot <- function (model, y,
     # Change "pos" object to be indices.
     start_adj <- -min(min(model[[pos$attr]]) - pos$start,0)
     end_adj <- max(max(model[[pos$attr]]) - pos$end,0)
-    pos <- (1 + start_adj):(length(p) - end_adj)
+    pos <- (1 + start_adj):(length(yy) - end_adj)
   } else {
-    if (!all(pos %in% 1:length(p)))
+    if (!all(pos %in% 1:length(yy)))
       stop("Provided position is outside the range of variables")
   }
   legend_text <- list(col = vector(), purity = vector(), size = vector())
@@ -162,7 +161,7 @@ clamp_plot <- function (model, y,
   if (!exists("ylab", args)) args$ylab <- ylab
   if (!exists("pch", args)) args$pch <- 16
   args$x <- pos + start
-  args$y <- p[pos]
+  args$y <- yy[pos]
   do.call(plot, args)
   if (is_clamp && !is.null(model$sets$cs)) {
     for(i in rev(1:nrow(model$alpha))){
@@ -171,11 +170,11 @@ clamp_plot <- function (model, y,
       purity <- model$sets$purity[which(model$sets$cs_index == i),1]
       if (!is.null(model$sets$purity) && max_cs < 1 && purity >= max_cs) {
         x0 <- intersect(pos,model$sets$cs[[which(model$sets$cs_index == i)]])
-        y1 <- p[x0]
+        y1 <- yy[x0]
       } else if (n_in_CS(model, model$sets$requested_coverage)[i] < max_cs) {
         x0 <- intersect(pos,
                         which(in_CS(model,model$sets$requested_coverage)[i,] > 0))
-        y1 <- p[x0]
+        y1 <- yy[x0]
       } else {
         x0 <- NULL
         y1 <- NULL
@@ -216,7 +215,7 @@ clamp_plot <- function (model, y,
     }
   }
   if (!is.null(effect_indices))
-    points(pos[effect_indices] + start, p[effect_indices] + start,
+    points(pos[effect_indices] + start, yy[effect_indices] + start,
            col = 2,pch = 16)
   # options(scipen = scipen0)
   return(invisible())
