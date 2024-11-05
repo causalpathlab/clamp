@@ -32,6 +32,18 @@
 #' @param check_null_threshold Scalar specifying the threshold on the log-scale
 #' to compare likelihood between current estimate and zero (null).
 #'
+#' @param mle_variance_estimator The estimation method of the variance of the MLEs,
+#' or equivalently, the variance of (Horvitz-Thompson) ATE estimators.
+#' \code{"bootstrap"} estimates the variances from \code{nboots} bootstrap replicates,
+#' \code{"sandwich"} uses sandwich robust variance estimators.
+#' \code{"naive"} calculates the variances from the weighted least square model,
+#' treating weights as constants (not recommended).
+#'
+#' @param nboots The number of bootstrap replicates. By default, \code{nboots=100}.
+#'
+#' @param seed Random seed utilized when \code{mle_variance_estimator="bootstrap"}.
+#' If \code{seed=NULL}, its default is \code{Sys.time()}.
+#'
 #' @returns A list with the following elements:
 #'
 #' \item{alpha}{Vector of posterior inclusion probabilities;
@@ -53,6 +65,7 @@
 #' @importFrom stats uniroot
 #' @importFrom stats optim
 #' @importFrom Matrix colSums
+#' @importFrom sandwich vcovHC
 #'
 #' @keywords internal
 #'
@@ -63,7 +76,10 @@ weighted_single_effect_regression <-
            residual_variance = 1,
            prior_inclusion_prob = NULL,
            optimize_prior_varB = c("none", "optim", "EM", "simple"),
-           check_null_threshold = 0) {
+           check_null_threshold = 0,
+           mle_variance_estimator = c("bootstrap", "sandwich", "naive"),
+           nboots = 100,
+           seed = NULL) {
 
     optimize_prior_varB <- match.arg(optimize_prior_varB)
 
@@ -78,21 +94,56 @@ weighted_single_effect_regression <-
       stop("Dimensions of W and X do not match!")
     }
 
+    ## Assume each column of X has been centralized...
     # Scale X
     X_ <- sweep(X, 2, attr(X, "scaled:center"), "-")  ## centralized
     X_ <- sweep(X_, 2, attr(X, "scaled:scale"), "/")
 
-    # Update the MLE (using scaled X)
-    if (length(W) == nrow(X)) {  ## weight is an (n by 1) vector
-      XtWX <- colSums(sweep(X_ * X_, 1, W, "*"))
-      XtWy <- colSums(sweep(X_, 1, W * y, "*"))
-    } else {  ## weight is an (n by p) matrix
-      XtWX <- colSums(X_ * X_ * W)
-      XtWy <- colSums(sweep(X_ * W, 1, y, "*"))
-    }
+    switch(mle_variance_estimator,
+           "naive" =
+             {
+              # Update the MLE (using scaled X)
+              if (length(W) == nrow(X)) {  ## weight is an (n by 1) vector
+                XtWX <- colSums(sweep(X_ * X_, 1, W, "*"))
+                XtWy <- colSums(sweep(X_, 1, W * y, "*"))
+              } else {  ## weight is an (n by p) matrix
+                XtWX <- colSums(X_ * X_ * W)
+                XtWy <- colSums(sweep(X_ * W, 1, y, "*"))
+              }
 
-    shat2 <- residual_variance / XtWX
-    betahat <- XtWy / XtWX  # = shat2 * XtWy
+              betahat <- XtWy / XtWX  # = shat2 * XtWy
+              shat2 <- residual_variance / XtWX
+           },
+
+           "sandwich" =
+             {
+               # Both X and y need to be centralized!
+               betahat <- rep(NA, times = p)
+               shat2 <- rep(NA, times = p)
+               for (j in 1 : p) {
+                 lmfit <- lm(y ~ X_[,j] - 1, weights = W[,j])
+                 betahat[j] <- coefficients(lmfit)[1]
+                 shat2[j] <- vcovHC(lmfit, type = "HC")
+               }
+             },
+
+           "bootstrap" =
+             {
+               # Update the MLE (using scaled X)
+               if (length(W) == nrow(X)) {  ## weight is an (n by 1) vector
+                 XtWX <- colSums(sweep(X_ * X_, 1, W, "*"))
+                 XtWy <- colSums(sweep(X_, 1, W * y, "*"))
+               } else {  ## weight is an (n by p) matrix
+                 XtWX <- colSums(X_ * X_ * W)
+                 XtWy <- colSums(sweep(X_ * W, 1, y, "*"))
+               }
+
+               betahat <- XtWy / XtWX  # = shat2 * XtWy
+               shat2 <- bootstrap_ipwe_variance(X=X_, y=y, W=W,
+                                                nboots=nboots, seed=seed)
+
+               # print(data.frame(betahat=betahat, shat2=shat2))
+             })
 
     # Check prior_inclusion_probability
     ## If `prior_inclusion_probability` is consistent to all variables,
@@ -134,12 +185,9 @@ weighted_single_effect_regression <-
     # Posterior prob for each variable
     alpha <- logPO_weighted / sum(logPO_weighted)    # posterior inclusion probability
     post_var <- 1 / (1/shat2 + 1/prior_varB)                      # posterior variance
-    post_mean <- prior_varB / (prior_varB + shat2) * XtWy / XtWX  # posterior mean
+    # post_mean <- prior_varB / (prior_varB + shat2) * XtWy / XtWX  # posterior mean
+    post_mean <- prior_varB / (prior_varB + shat2) * betahat  # posterior mean
     post_mean2 <- post_var + post_mean^2                          # posterior second moment
-
-    # print(data.frame(alpha = alpha, betahat = betahat, shat2 = shat2,
-    #                  post_mean = post_mean, post_var = post_var))
-
 
     # ABF for WSER model
     logBF_model <- maxlogPO + log(sum(logPO_weighted))
