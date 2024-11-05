@@ -128,13 +128,6 @@ for comparison:
 print(data.frame(vars = c(paste0("X", causal_vars), "U"), coefs))
 ```
 
-```{r}
-res_cl3 <- clamp(X = cbind(X, U), y = Y, family = "linear")
-
-clamp_plot(res_cl3, y = "PIP", effect_indices = causal_vars)
-summarize_coefficients(res_cl3)
-```
-
 
 
 
