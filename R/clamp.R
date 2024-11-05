@@ -196,7 +196,8 @@
 clamp <- function (X, y,
                    W = NULL, ## IPW matrix, should be of same size of X
                    maxL = min(10,ncol(X)),
-                   family = c("linear", "logistic", "poisson"),
+                   # family = c("linear", "logistic", "poisson"),
+                   family = "linear",
                    scaled_prior_variance = 0.2,
                    residual_variance = NULL,
                    prior_inclusion_prob = NULL,
@@ -206,6 +207,9 @@ clamp <- function (X, y,
                    estimate_prior_variance = TRUE,
                    estimate_prior_method = c("optim", "EM", "simple"),
                    check_null_threshold = 0,
+                   mle_variance_estimator = c("bootstrap", "sandwich", "naive"),
+                   nboots = 100,
+                   seed = NULL,
                    prior_tol = 1e-9,
                    residual_variance_upperbound = Inf,
                    abnormal_proportion = 0.5,
@@ -214,7 +218,7 @@ clamp <- function (X, y,
                    coverage = 0.95,
                    min_abs_corr = 0.5,
                    na.rm = FALSE,
-                   max_iter = 500,
+                   max_iter = 200,
                    tol = 1e-3,
                    verbose = FALSE,
                    track_fit = FALSE,
@@ -227,6 +231,9 @@ clamp <- function (X, y,
   robust_method = match.arg(robust_method)
   # Process input robust_estimator
   robust_estimator = match.arg(robust_estimator)
+
+  # Process input mle_variance_estimator
+  mle_variance_estimator = match.arg(mle_variance_estimator)
 
   # Process input family and the related functions
   family = match.arg(family)
@@ -360,10 +367,18 @@ clamp <- function (X, y,
 
   for (tt in 1:max_iter) {
 
+    # if (verbose) print(paste("iter:", tt))
+
     if (track_fit)
       tracking[[tt]] = clamp_slim(s)
 
+    # if !is.null(seed), update the random seed in every iteration.
+    if (!is.null(seed)) {seed <- seed + tt}
+
     s <- update_each_effect(X=X, y=y, s=s, W=W, model=model,
+                          mle_variance_estimator=mle_variance_estimator,
+                          nboots=nboots,
+                          seed=seed,
                           estimate_prior_variance = estimate_prior_variance,
                           estimate_prior_method = estimate_prior_method,
                           check_null_threshold = check_null_threshold,
@@ -393,14 +408,13 @@ clamp <- function (X, y,
         s$sigma2 <- pmax(residual_variance_lowerbound,
                         estimate_residual_variance_fun(X,y,s))
 
-      } else { ## for logistic and poisson regression models
+      } else {
+        ## logistic and poisson regression models:
+        ## for glm, this part should not include.
         psd_rsp <- model$pseudo_response(s$Xr, y)
         s$sigma2 <- pmax(residual_variance_lowerbound,
                          estimate_residual_variance_fun(X, psd_rsp, s))
       }
-
-      # if (verbose)
-      #   print(paste("updated sigma2:", s$sigma2))
 
       if (s$sigma2 > residual_variance_upperbound) {
         s$sigma2 <- residual_variance_upperbound
