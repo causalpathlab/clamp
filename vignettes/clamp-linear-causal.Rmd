@@ -28,7 +28,8 @@ library(corrplot)
 ```{r}
 set.seed(107107)
 nn <- 800
-pp <- 1000
+# pp <- 1000
+pp <- 5
 U <- rnorm(nn)
 # zeta <- ((1:pp) -5.5) / 6
 zeta <- rnorm(pp, sd = 1)
@@ -38,7 +39,7 @@ delta <- matrix(rnorm(nn*pp, 0, 0.1), nrow=nn)
 UU <- (outer(U, zeta) + delta)[, , drop=F]
 
 Pmat <- expit(UU)  # Prob matrix
-hist(cor(Pmat))
+hist(cor(Pmat), breaks = seq(-1, 1, by = 0.1))
 # hist(Pmat)
 # corrplot(cor(Pmat), type = "upper")
 ```
