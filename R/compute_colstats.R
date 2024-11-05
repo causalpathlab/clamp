@@ -44,6 +44,7 @@ compute_colstats = function (X, center = TRUE, scale = TRUE) {
 #
 #' @importFrom matrixStats colSds
 #' @importFrom Matrix summary
+
 compute_colSds = function(X) {
   if (is.matrix(X))
     return(colSds(X))
