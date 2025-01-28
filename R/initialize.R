@@ -85,7 +85,9 @@ init_setup <- function (n, p, maxL, family,
            mu2    = matrix(0,nrow = maxL,ncol = p),
            betahat = matrix(0, nrow = maxL, ncol = p),  ## MLE
            Xr     = rep(0,n),
-           # KL     = rep(as.numeric(NA),L),
+           # KL     = rep(as.numeric(NA),maxL),
+           EWR2 = rep(as.numeric(NA), maxL),
+           Eloglik = rep(as.numeric(NA), maxL),
            logBF  = rep(as.numeric(NA),maxL),
            logBF_variable = matrix(as.numeric(NA),maxL,p),
            sigma2 = residual_variance,           ## residual variance
