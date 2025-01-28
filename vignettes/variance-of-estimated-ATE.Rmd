@@ -103,26 +103,30 @@ and the corresponding variance are likely to shrink...
 Here is a simple example. 
 
 ```{r}
-set.seed(111111)
+set.seed(20241108)
 nn <- 500
-pp <- 550
-U <- rnorm(nn)
-zeta <- rnorm(pp, sd = 1)
+pp <- 100
+U <- rnorm(nn, mean =1)
+# zeta <- c(rnorm(pp/2, mean = -0.5, sd = 1),
+#           rnorm(pp/2, mean = 0.8, sd = 1))
+zeta <- ((1:pp) -(pp/2)) / (pp+2)
 delta <- matrix(rnorm(nn*pp, 0, 0.1), nrow=nn)
-UU <- (outer(U, zeta) + delta)[, , drop=F]
+UU <- (outer(U, zeta) + 0.5*delta)[, , drop=F]
 
 Pmat <- expit(UU)  # Prob matrix
-hist(cor(Pmat), breaks = seq(-1, 1, by = 0.1))
-# hist(Pmat)
+corPmat <- cor(Pmat)
+diag(corPmat) <- 0
+hist(corPmat, breaks = seq(-1, 1, by = 0.1))
+hist(Pmat)
 # corrplot(cor(Pmat), type = "upper")
 
 X <- sapply(1:pp, function(j) {rbinom(nn, 1, Pmat[,j])})
 X <- apply(X, 2, as.double)
 esp <- rnorm(nn)
 
-causal_vars <- sample.int(pp, size = 5)
-# coefs <- rnorm(4)
-coefs <- rep(1, times = length(causal_vars) + 1)
+causal_vars <- sample.int(pp, size = 3)
+# coefs <- rep(1, times = length(causal_vars) + 1)
+coefs <- rnorm(length(causal_vars) + 1)
 y <- cbind(X[, causal_vars, drop=F], U) %*% as.matrix(coefs) + esp
 
 print(data.frame(variable = c(paste0("X", causal_vars), "U"), 
@@ -141,8 +145,10 @@ range(Wmat)
 tic <- Sys.time()
 res_nv <- clamp(X, y, W=Wmat, family = "linear", 
                 mle_variance_estimator = "naive",
+                # max_iter = 3, 
                 standardize = F,
-                estimate_prior_variance = F, estimate_residual_variance = F,
+                # estimate_prior_variance = F, 
+                estimate_residual_variance = F,
                 verbose=T)
 toc <- Sys.time()
 toc - tic
@@ -166,8 +172,9 @@ which increases the computational time (a lot).
 tic <- Sys.time()
 res_sw <- clamp(X, y, W=Wmat, family = "linear", 
                 mle_variance_estimator = "sandwich",
-                standardize = F, 
-                estimate_prior_variance = F, estimate_residual_variance = F,
+                standardize = F,
+                # estimate_prior_variance = F, 
+                estimate_residual_variance = F,
                 verbose = T
                 )
 toc <- Sys.time()
@@ -189,11 +196,12 @@ instead, some estimates, and thus the ELBO, may oscillate periodically(?).
 tic <- Sys.time()
 res_bs <- clamp(X, y, W=Wmat, family = "linear", 
                 mle_variance_estimator = "bootstrap",
-                standardize = F, 
-                estimate_prior_variance = F, estimate_residual_variance = F,
-                max_iter = 20,
-                # seed = 123, 
-                nboots = 200,
+                standardize = F,
+                # estimate_prior_variance = F, 
+                estimate_residual_variance = F,
+                max_iter = 50,
+                seed = 12345,
+                nboots = 100,
                 verbose=T
                 )
 toc <- Sys.time()
@@ -201,6 +209,17 @@ toc - tic
 summarize_coefficients(res_bs)
 clamp_plot(res_bs, y = "PIP", effect_indices = causal_vars)
 ```
+
+### Compare with `susieR::susie()`
+
+```{r}
+res_su <- susieR::susie(X, y)
+summarize_coefficients(res_su)
+# clamp_plot(res_su, y = "PIP", effect_indices = causal_vars)
+susieR::susie_plot(res_su, y = "PIP", b = (1:10 %in% causal_vars))
+```
+
+
 
 
 ## Linearization estimator
