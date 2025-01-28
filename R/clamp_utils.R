@@ -422,14 +422,14 @@ in_CS_x = function (x, coverage = 0.9) {
 # susie credible sets.
 #' @keywords internal
 in_CS = function (res, coverage = 0.9) {
-  if (inherits(res,"clamp"))
+  if (inherits(res, c("clamp", "susie")))
     res = res$alpha
   return(t(apply(res,1,function(x) in_CS_x(x,coverage))))
 }
 
 #' @keywords internal
 n_in_CS = function(res, coverage = 0.9) {
-  if (inherits(res,"clamp"))
+  if (inherits(res,c("clamp", "susie")))
     res = res$alpha
   return(apply(res,1,function(x) n_in_CS_x(x,coverage)))
 }
