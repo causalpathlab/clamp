@@ -109,9 +109,11 @@ clamp_plot <- function (model, y,
   }
 
   if (!include_intercept) {
-    if (model$family %in% c("logistic", "poisson")) {
-      intercept_index <- length(model$pip)
-      yy <- yy[-intercept_index]
+    if (class(model) == "clamp") {
+      if (!is.null(model$family) & (model$family %in% c("logistic", "poisson"))) {
+        intercept_index <- length(model$pip)
+        yy <- yy[-intercept_index]
+      }
     }
   }
 
