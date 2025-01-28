@@ -71,23 +71,24 @@ update_each_effect <- function (X, y, s, W=NULL, model,
     ## for the consistency of codes, let irls_weight = 1
     irls_weight <- rep(1, times = length(y))
 
-  } else { ## if (s$family %in% c("logistic", "poisson"))
-
-    # Iterative reweighted least-squared (IRLS) for generalized linear models
-
-    ## update the pseudo-response
-    psd_rsp <- model$pseudo_response(s$Xr, y)
-
-    ## update the overall log-pseudo-variance
-    log_psd_var <- model$log_pseudo_var(s$Xr)
-    ## a n-dim vector of weights yielded from IRLS
-    irls_weight <- exp(-log_psd_var)
-    ## check if there are any abnormal points based on irls_weight
-    s$abnormal_subjects <- check_abnormal_subjects(irls_weight)
-
-    ## compute the residuals
-    current_R <- psd_rsp - s$Xr
   }
+  #  else { ## if (s$family %in% c("logistic", "poisson"))
+  #
+  #   # Iterative reweighted least-squared (IRLS) for generalized linear models
+  #
+  #   ## update the pseudo-response
+  #   psd_rsp <- model$pseudo_response(s$Xr, y)
+  #
+  #   ## update the overall log-pseudo-variance
+  #   log_psd_var <- model$log_pseudo_var(s$Xr)
+  #   ## a n-dim vector of weights yielded from IRLS
+  #   irls_weight <- exp(-log_psd_var)
+  #   ## check if there are any abnormal points based on irls_weight
+  #   s$abnormal_subjects <- check_abnormal_subjects(irls_weight)
+  #
+  #   ## compute the residuals
+  #   current_R <- psd_rsp - s$Xr
+  # }
 
   # Robust estimation regarding W/residuals.
   # The importance weights are assigned to each observation.
@@ -163,9 +164,8 @@ update_each_effect <- function (X, y, s, W=NULL, model,
       s$prior_varB[l] = res$prior_varB
       s$logBF[l]      = res$logBF_model
       s$logBF_variable[l,] = res$logBF
-      # s$KL[l]     = -res$loglik +
-      #   SER_posterior_e_loglik(X,R,s$sigma2,res$alpha * res$mu,
-      #                          res$alpha * res$mu2)
+      s$EWR2[l]      = res$EWR2
+      s$Eloglik[l]     = res$Eloglik
 
       # Update the current residuals
       current_R <- Rl - compute_Xb(X_sub, s$alpha[l,] * s$mu[l,])
