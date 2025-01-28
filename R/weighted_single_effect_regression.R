@@ -84,11 +84,12 @@ weighted_single_effect_regression <-
     optimize_prior_varB <- match.arg(optimize_prior_varB)
 
     p <- ncol(X)
+    n <- nrow(X)
 
     # Check W
     if (is.null(W)) {
-      W <- rep(1, times = nrow(X))
-    } else if (length(W) == nrow(X)) {  ## (n by 1) vector
+      W <- rep(1, times = n)
+    } else if (length(W) == n) {  ## (n by 1) vector
       W <- as.numeric(W)
     } else if (!all(dim(W) == dim(X))) {  ## (n by p) matrix
       stop("Dimensions of W and X do not match!")
@@ -98,58 +99,46 @@ weighted_single_effect_regression <-
     # Scale X
     X_ <- sweep(X, 2, attr(X, "scaled:center"), "-")  ## centralized
     X_ <- sweep(X_, 2, attr(X, "scaled:scale"), "/")
+    # Scale y: y_ is a n by p matrix.
+    y_ <- sapply(as.matrix(1:ncol(X)),
+                 function(j) {y - weighted.mean(x = y, w = W[,j])})
 
     switch(mle_variance_estimator,
-           "naive" =
-             {
-              # Update the MLE (using scaled X)
-              if (length(W) == nrow(X)) {  ## weight is an (n by 1) vector
-                XtWX <- colSums(sweep(X_ * X_, 1, W, "*"))
-                XtWy <- colSums(sweep(X_, 1, W * y, "*"))
-              } else {  ## weight is an (n by p) matrix
-                XtWX <- colSums(X_ * X_ * W)
-                XtWy <- colSums(sweep(X_ * W, 1, y, "*"))
-              }
-
-              betahat <- XtWy / XtWX  # = shat2 * XtWy
-              shat2 <- residual_variance / XtWX
+           "naive" = {
+              if (all(dim(W) == dim(X))) {
+                wxy <- colSums(W * X_ * y_)
+                wx2  <- colSums(W * X_^2)
+               }
+              betahat <- wxy / wx2
+              shat2 <- residual_variance / wx2
            },
 
-           "sandwich" =
-             {
+           "sandwich" = {
                # Both X and y need to be centralized!
                betahat <- rep(NA, times = p)
                shat2 <- rep(NA, times = p)
                for (j in 1 : p) {
-                 lmfit <- lm(y ~ X_[,j] - 1, weights = W[,j])
-                 betahat[j] <- coefficients(lmfit)[1]
-                 shat2[j] <- vcovHC(lmfit, type = "HC")
+                 lmfit <- lm(y ~ X[,j], weights = W[,j])
+                 betahat[j] <- coefficients(lmfit)[2]
+                 shat2[j] <- vcovHC(lmfit, type = "HC")[2,2]
                }
              },
 
-           "bootstrap" =
-             {
-               # Update the MLE (using scaled X)
-               if (length(W) == nrow(X)) {  ## weight is an (n by 1) vector
-                 XtWX <- colSums(sweep(X_ * X_, 1, W, "*"))
-                 XtWy <- colSums(sweep(X_, 1, W * y, "*"))
-               } else {  ## weight is an (n by p) matrix
-                 XtWX <- colSums(X_ * X_ * W)
-                 XtWy <- colSums(sweep(X_ * W, 1, y, "*"))
+           "bootstrap" = {
+               if (all(dim(W) == dim(X))) {
+                 wxy <- colSums(W * X_ * y_)
+                 wx2  <- colSums(W * X_^2)
                }
-
-               betahat <- XtWy / XtWX  # = shat2 * XtWy
-               shat2 <- bootstrap_ipwe_variance(X=X_, y=y, W=W,
+               betahat <- wxy / wx2
+               shat2 <- bootstrap_ipwe_variance(X=X, y=y, W=W,
                                                 nboots=nboots, seed=seed)
-
-               # print(data.frame(betahat=betahat, shat2=shat2))
              })
 
     # Check prior_inclusion_probability
     ## If `prior_inclusion_probability` is consistent to all variables,
     ## its value should not affect the posterior inclusion probability (alpha).
     if (is.null(prior_inclusion_prob)) {
-      prior_inclusion_prob <- rep(1/p, times = p)  ## other value?
+      prior_inclusion_prob <- rep(1/p, times = p)
     } else {
       if (length(prior_inclusion_prob) != p)
         stop("The length of prior inclusion probability does not match")
@@ -159,7 +148,7 @@ weighted_single_effect_regression <-
     if (optimize_prior_varB != "EM" && optimize_prior_varB != "none") {
       prior_varB <- optimize_prior_variance(optimize_prior_varB, betahat, shat2,
                                   prior_inclusion_prob,
-                                  alpha = NULL, post_mean2 = NULL,
+                                  alpha = NULL, mu2 = NULL,
                                   prior_varB_init = prior_varB,
                                   check_null_threshold = check_null_threshold)
 
@@ -184,10 +173,9 @@ weighted_single_effect_regression <-
     # Update the posterior estimates
     # Posterior prob for each variable
     alpha <- logPO_weighted / sum(logPO_weighted)    # posterior inclusion probability
-    post_var <- 1 / (1/shat2 + 1/prior_varB)                      # posterior variance
-    # post_mean <- prior_varB / (prior_varB + shat2) * XtWy / XtWX  # posterior mean
-    post_mean <- prior_varB / (prior_varB + shat2) * betahat  # posterior mean
-    post_mean2 <- post_var + post_mean^2                          # posterior second moment
+    post_varB <- 1 / (1/shat2 + 1/prior_varB)                      # posterior variance
+    mu <- prior_varB / (prior_varB + shat2) * betahat  # posterior mean
+    mu2 <- post_varB + mu^2                      # posterior second moment
 
     # ABF for WSER model
     logBF_model <- maxlogPO + log(sum(logPO_weighted))
@@ -196,17 +184,28 @@ weighted_single_effect_regression <-
     if (optimize_prior_varB == "EM") {
       prior_varB <- optimize_prior_variance(optimize_prior_varB, betahat, shat2,
                                    prior_inclusion_prob,
-                                   alpha, post_mean2,
+                                   alpha, mu2,
                                    check_null_threshold = check_null_threshold)
-      }
+    }
+
+    # Expected weighted sum of squared residual (EWRSS)
+    EWR2 <- get_EWR2_l(X=X_, y=y_, W=W,
+                     alpha=alpha, mu=mu, mu2=mu2)
+    # Expected log-likelihood under variational distribution ql
+    Eloglik <- WSER_posterior_e_loglik(X=X_, y=y_, W=W,
+                                      alpha=alpha, mu=mu,
+                                      mu2=mu2,
+                                      residual_variance=residual_variance)
 
     return(list(alpha = alpha,      # posterior inclusion probability
-                mu = post_mean,     # posterior mean
-                mu2 = post_mean2,   # posterior second moment
+                mu = mu,     # posterior mean
+                mu2 = mu2,   # posterior second moment
                 betahat = betahat,  # maximum likelihood estimator (MLE)
                 logBF = logBF,      # layer-wise log of Bayes factor
                 logBF_model = logBF_model,  # log of Bayes factor of model
-                prior_varB = prior_varB  # prior variance of coefficients B
+                prior_varB = prior_varB,  # prior variance of coefficients B
+                EWR2 = EWR2,        # expected weighted sum of squared residual
+                Eloglik = Eloglik     # expected log-likelihood
     ))
   }
 
@@ -221,7 +220,7 @@ weighted_single_effect_regression <-
 #' @keywords internal
 optimize_prior_variance <- function(optimize_prior_varB, betahat, shat2,
                                     prior_inclusion_prob,
-                                    alpha = NULL, post_mean2 = NULL,
+                                    alpha = NULL, mu2 = NULL,
                                     prior_varB_init = NULL,
                                     check_null_threshold = 0) {
   prior_varB = prior_varB_init
@@ -243,7 +242,7 @@ optimize_prior_variance <- function(optimize_prior_varB, betahat, shat2,
       prior_varB <- exp(log_prior_varB)
     }
     else if (optimize_prior_varB == "EM") {
-      prior_varB <- sum(alpha * post_mean2)  # second-order of beta_js (WHY?!!)
+      prior_varB <- sum(alpha * mu2)  # second-order of beta_js (WHY?!!)
     } else
       stop("Invalid option for optimize_prior_varB method")
   }
