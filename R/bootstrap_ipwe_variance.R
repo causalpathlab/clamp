@@ -40,15 +40,20 @@ bootstrap_ipwe_variance <- function(X, y, W, nboots = 100, seed = NULL) {
     yboot <- y[ind]
     Wboot <- W[ind, , drop = F]
 
-    # Update the MLE (using scaled X)
-    if (length(W) == nrow(X)) {  ## weight is an (n by 1) vector
-      XtWX <- colSums(sweep(Xboot * Xboot, 1, Wboot, "*"))
-      XtWy <- colSums(sweep(Xboot, 1, Wboot * yboot, "*"))
-    } else {  ## weight is an (n by p) matrix
-      XtWX <- colSums(Xboot * Xboot * Wboot)
-      XtWy <- colSums(sweep(Xboot * Wboot, 1, yboot, "*"))
+    # Scale X
+    Xboot_ <- sapply(as.matrix(1:ncol(Xboot)),
+                 function(j) {Xboot[,j] - weighted.mean(x = Xboot[,j], w = Wboot[,j])})
+    # Scale y:
+    # y_ is an n by p matrix
+    yboot_ <- sapply(as.matrix(1:ncol(Xboot)),
+                 function(j) {yboot - weighted.mean(x = yboot, w = Wboot[,j])})
+
+    if (all(dim(Wboot) == dim(Xboot))) {
+      wxy <- colSums(Wboot * Xboot_ * yboot_)
+      wx2  <- colSums(Wboot * Xboot_^2)
     }
-    boot_betahat[B, ] <- XtWy / XtWX
+    boot_betahat[B, ] <- wxy / wx2
+
   }
 
   return( colVars(boot_betahat) )
