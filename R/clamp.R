@@ -80,6 +80,21 @@
 #'   note of caution that setting this to a value greater than zero may
 #'   lead the IBSS fitting procedure to occasionally decrease the ELBO.
 #'
+#' @param mle_variance_estimator The method to estimate the variances of
+#'   IPW estimators. \code{"bootstrap"} estimates the variance via 100
+#'   bootstrap replicates, \code{"sandwich"} computes the robust sandwich
+#'   variance estimates, and \code{"naive"} calculates the variances based
+#'   on the corresponding weighted linear regression models.
+#'
+#' @param burn_in A number, referring to the number of initial iterations
+#'   being discarded. It is used to check the convergence when
+#'   \code{mle_variance_estimator="bootstrap"}. Some pilot simulations are
+#'   recommended to determine the burn-in period.
+#'
+#' @param converge_window A number. If, after the burn-in period, the
+#'   average of ELBO of \code{converge_window} successive iterations converges,
+#'   then the algorithm is considered converged.
+#'
 #' @param prior_tol When the prior variance is estimated, compare the
 #'   estimated value to \code{prior_tol} at the end of the computation,
 #'   and exclude a single effect from PIP computation if the estimated
@@ -210,6 +225,8 @@ clamp <- function (X, y,
                    mle_variance_estimator = c("bootstrap", "sandwich", "naive"),
                    nboots = 100,
                    seed = NULL,
+                   burn_in = 10,
+                   converge_window = 10,
                    prior_tol = 1e-9,
                    residual_variance_upperbound = Inf,
                    abnormal_proportion = 0.5,
@@ -219,7 +236,7 @@ clamp <- function (X, y,
                    min_abs_corr = 0.5,
                    na.rm = FALSE,
                    max_iter = 200,
-                   tol = 1e-3,
+                   tol = 1e-2,
                    verbose = FALSE,
                    track_fit = FALSE,
                    residual_variance_lowerbound = var(drop(y))/1e4,
@@ -239,20 +256,22 @@ clamp <- function (X, y,
   family = match.arg(family)
   model <- list()
   model$family <- family
-  switch(model$family,
-         "linear" = {
-           model$loglik <- Eloglik_linear},
-         "logistic" = {
-           model$log_pseudo_var  <- log_pseudo_variance_logistic
-           model$pseudo_response <- pseudo_response_logistic
-           model$loglik          <- loglik_logistic
-           model$inverse_link    <- inverse_link_logistic},
-         "poisson" = {
-           model$log_pseudo_var  <- log_pseudo_variance_poisson
-           model$pseudo_response <- pseudo_response_poisson
-           model$loglik          <- loglik_poisson
-           model$inverse_link    <- inverse_link_poisson}
-  )
+  # model$loglik <- Eloglik_linear
+  # model$loglik <- Eloglik_wlinear
+  # switch(model$family,
+  #        "linear" = {
+  #          model$loglik <- Eloglik_linear},
+  #        "logistic" = {
+  #          model$log_pseudo_var  <- log_pseudo_variance_logistic
+  #          model$pseudo_response <- pseudo_response_logistic
+  #          model$loglik          <- loglik_logistic
+  #          model$inverse_link    <- inverse_link_logistic},
+  #        "poisson" = {
+  #          model$log_pseudo_var  <- log_pseudo_variance_poisson
+  #          model$pseudo_response <- pseudo_response_poisson
+  #          model$loglik          <- loglik_poisson
+  #          model$inverse_link    <- inverse_link_poisson}
+  # )
 
 
   # Check input X.
@@ -290,40 +309,41 @@ clamp <- function (X, y,
 
   if (family == "linear") {
 
-    out = compute_colstats(X, center = intercept, scale = standardize)
+    out = compute_colstats(X, W, center = intercept, scale = standardize)
     attr(X,"scaled:center") = out$scaled_center
     attr(X,"scaled:scale")  = out$scaled_scale
     attr(X,"d") = out$d  ## applied in computing ERSS (`get_ER2()`)
 
-    if (intercept) {
+    if (intercept) {  ## do not affect the estimation of beta (MLE)
       mean_y = mean(y)
-      y = y - mean_y
+      # y = y - mean_y  ##?!
     }
 
-  } else if (family %in% c("logistic", "poisson")) {
-
-    ## Opt out: scaling X but not centralizing it.
-    out = compute_colstats(X, center = standardize, scale = standardize)
-
-    if (intercept) {  ## by default
-
-      X <- cbind(X, 1)  ## add an all-one folumn representing the offset term
-      const_index <- ncol(X)
-      colnames(X)[const_index] <- "(Intercept)"
-
-      attr(X, "scaled:center") <- append(out$scaled_center, 0)
-      attr(X, "scaled:scale") <- append(out$scaled_scale, 1)
-      attr(X, "d") <- append(out$d, nrow(X))  ## applied in computing ERSS (`get_ER2()`)
-
-      ## The input response will not be modified.
-
-    } else { ## intercept = FALSE
-
-      attr(X,"scaled:center") = out$scaled_center
-      attr(X,"scaled:scale")  = out$scaled_scale
-      attr(X,"d") = out$d  ## applied in computing ERSS (`get_ER2()`)
-    }
   }
+  # else if (family %in% c("logistic", "poisson")) {
+  #
+  #   ## Opt out: scaling X but not centralizing it.
+  #   out = compute_colstats(X, center = standardize, scale = standardize)
+  #
+  #   if (intercept) {  ## by default
+  #
+  #     X <- cbind(X, 1)  ## add an all-one folumn representing the offset term
+  #     const_index <- ncol(X)
+  #     colnames(X)[const_index] <- "(Intercept)"
+  #
+  #     attr(X, "scaled:center") <- append(out$scaled_center, 0)
+  #     attr(X, "scaled:scale") <- append(out$scaled_scale, 1)
+  #     attr(X, "d") <- append(out$d, nrow(X))  ## applied in computing ERSS (`get_ER2()`)
+  #
+  #     ## The input response will not be modified.
+  #
+  #   } else { ## intercept = FALSE
+  #
+  #     attr(X,"scaled:center") = out$scaled_center
+  #     attr(X,"scaled:scale")  = out$scaled_scale
+  #     attr(X,"d") = out$d  ## applied in computing ERSS (`get_ER2()`)
+  #   }
+  # }
 
   n <- nrow(X)
   p <- ncol(X)
@@ -336,9 +356,9 @@ clamp <- function (X, y,
   # Check weight matrix W
   if (!is.null(W)){
 
-    # Add weight to the all-one column of X
-    if (family %in% c("logistic", "poisson") & intercept)
-      W <- cbind(W, 1)
+    # # Add weight to the all-one column of X
+    # if (family %in% c("logistic", "poisson") & intercept)
+    #   W <- cbind(W, 1)
 
     # Check whether the dimensions of W and X match
     if (!( (length(W) == nrow(X)) | all(dim(W) == dim(X)) ))
@@ -362,6 +382,10 @@ clamp <- function (X, y,
   # Initialize log-likelihood into NA
   loglik = rep(as.numeric(NA),max_iter+1)  ## not required to know...
   loglik[1] = -Inf
+
+  # (Expected) weighted sum of squared residual
+  WRSS = rep(as.numeric(NA),max_iter+1)  ## not required to know...
+  WRSS[1] = -Inf
 
   tracking = list()
 
@@ -389,18 +413,41 @@ clamp <- function (X, y,
     # Compute objective before updating residual variance because part
     # of the objective s$kl has already been computed under the
     # residual variance before the update.
-    elbo[tt+1] = get_elbo(X, y, s, model=model)
-    loglik[tt+1] = sum(model$loglik(X, y, s))
+    # elbo[tt+1] = get_elbo(X, y, s, W)
+    elbo[tt+1]   = get_elbo(s)
+    WRSS[tt+1]   = mean(s$EWR2)
+    loglik[tt+1] = mean(s$Eloglik)
 
     if (verbose){
-      print(paste("#iteration:", tt, "; objective:", elbo[tt+1]))
+      print(paste("#iteration:", tt,
+                  "; objective:", round(elbo[tt+1], 2),
+                  "; expected WRSS:", round(WRSS[tt+1], 2),
+                  "; loglik:", round(loglik[tt+1], 2)))
     }
 
-    if (abs(elbo[tt+1] - elbo[tt]) < tol) {
-    # if ((elbo[tt+1] - elbo[tt]) < tol) {
-      s$converged = TRUE
-      break
+    ## convergence condition
+    if (mle_variance_estimator == "bootstrap") {
+      ## If applying the bootstrap variance estimator,
+      ## the ELBO (?) may fluctuate within a certain range.
+      ## We use a convergence condition:
+      ## after a "burn-in" period, if the average of 10 successive ELBO converges,
+      ## then break the loop.
+        if (tt > (burn_in + converge_window + 1)) {
+          if ( abs(mean(elbo[(tt - converge_window - 1) : (tt-1)]) -
+                   mean(elbo[(tt - converge_window) : (tt)]) ) < tol ) {
+              s$converged = TRUE
+              break
+          }
+        }
+    } else {
+      if (abs(elbo[tt+1] - elbo[tt]) < tol) {
+        # if ((elbo[tt+1] - elbo[tt]) < tol) {
+        s$converged = TRUE
+        break
+      }
     }
+
+
 
     if (estimate_residual_variance) {
 
@@ -408,12 +455,6 @@ clamp <- function (X, y,
         s$sigma2 <- pmax(residual_variance_lowerbound,
                         estimate_residual_variance_fun(X,y,s))
 
-      } else {
-        ## logistic and poisson regression models:
-        ## for glm, this part should not include.
-        psd_rsp <- model$pseudo_response(s$Xr, y)
-        s$sigma2 <- pmax(residual_variance_lowerbound,
-                         estimate_residual_variance_fun(X, psd_rsp, s))
       }
 
       if (s$sigma2 > residual_variance_upperbound) {
@@ -430,6 +471,9 @@ clamp <- function (X, y,
   s$elbo = elbo
   loglik = loglik[2:(tt+1)]
   s$loglik = loglik
+  # Remove redundancies
+  s$Eloglik = NULL
+  s$EWR2 = NULL
 
   s$niter = tt
 
@@ -442,28 +486,37 @@ clamp <- function (X, y,
 
     if (intercept) {
       # Estimate unshrunk intercept.
+
+      # Treat this as an ordinary linear regression model
+      # Here, the intercept and the estimated residual variance implicitly
+      # represents the effect of the confounding factor on y.
       s$intercept <- mean_y -
-        sum( attr(X,"scaled:center") *
-               (colSums(s$alpha * s$mu)/attr(X,"scaled:scale")) )
+        sum( colMeans(X) * (colSums(s$alpha * s$mu) / colSds(X)) )
       s$fitted <- s$Xr + mean_y
+
+      # s$intercept <- mean_y -
+      #   sum( attr(X,"scaled:center") *
+      #          (colSums(s$alpha * s$mu)/attr(X,"scaled:scale")) )
+
     } else {
       s$intercept <- 0
       s$fitted <- s$Xr
     }
 
-  } else {  # if (family %in% c("logistic", "poisson"))
-
-    if (intercept) {
-      s$intercept <- colSums(s$alpha*s$mu)[p] # -
-        # sum( attr(X,"scaled:center")[-p] *
-        #        (colSums(s$alpha*s$mu)/attr(X,"scaled:scale"))[-p] )
-
-    } else {
-      s$intercept <- 0
-    }
-    s$fitted <- model$inverse_link(s$Xr)
-
   }
+  # else {  # if (family %in% c("logistic", "poisson"))
+  #
+  #   if (intercept) {
+  #     s$intercept <- colSums(s$alpha*s$mu)[p] # -
+  #       # sum( attr(X,"scaled:center")[-p] *
+  #       #        (colSums(s$alpha*s$mu)/attr(X,"scaled:scale"))[-p] )
+  #
+  #   } else {
+  #     s$intercept <- 0
+  #   }
+  #   s$fitted <- model$inverse_link(s$Xr)
+  #
+  # }
 
   s$fitted = drop(s$fitted)
   names(s$fitted) = `if`(is.null(names(y)),rownames(X),names(y))
