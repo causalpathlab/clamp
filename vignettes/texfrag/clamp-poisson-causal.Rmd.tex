@@ -1,0 +1,35 @@
+\documentclass{article}
+\usepackage{amsmath,amsfonts}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\begin{document}
+$p=10$
+$n=1000$
+$X_j$
+$$
+X_{ij}=1 \sim \operatorname{Bern}(\operatorname{expit}(L^*_{ij})), 
+$$
+$U \sim N(0, 1^2)$
+$U_{ij}$
+$$
+u^*_{ij}=\zeta_j u_i +\delta_{ij}, \ \delta_{ij} \sim N(0, 0.5^2)
+$$
+$\zeta_j = (j-5.5)/6$
+$j=1, \ldots, 10$
+$$
+g_j(t) = \frac{1}{1+\exp\left(- t\right)}
+$$
+$y$
+$$
+y_i|(\mathbf{x}_i, u_i) \sim \operatorname{Poisson}(\lambda_i),
+$$
+$$
+\lambda_i = \operatorname{exp}(\operatorname{scale}(\eta_i)), 
+$$
+$$
+\eta_i = \beta_{1} x_{i1} + \beta_{4} x_{i4} + \beta_{9} x_{i9} + \theta_{u} u_i
+$$
+\end{document}
+%%Local Variables:
+%%TeX-master: t
+%%End:
