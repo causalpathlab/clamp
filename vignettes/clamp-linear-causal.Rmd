@@ -29,10 +29,10 @@ library(corrplot)
 set.seed(107107)
 nn <- 800
 # pp <- 1000
-pp <- 5
+pp <- 20
 U <- rnorm(nn)
-# zeta <- ((1:pp) -5.5) / 6
-zeta <- rnorm(pp, sd = 1)
+zeta <- ((1:pp) -(pp/2+0.5)) / (pp+1)
+# zeta <- rnorm(pp, sd = 1)
 # zeta <- rep(0, times = pp)
 # hist(zeta)
 delta <- matrix(rnorm(nn*pp, 0, 0.1), nrow=nn)
@@ -40,8 +40,7 @@ UU <- (outer(U, zeta) + delta)[, , drop=F]
 
 Pmat <- expit(UU)  # Prob matrix
 hist(cor(Pmat), breaks = seq(-1, 1, by = 0.1))
-# hist(Pmat)
-# corrplot(cor(Pmat), type = "upper")
+corrplot(cor(Pmat), type = "upper")
 ```
 
 ```{r}
@@ -50,9 +49,8 @@ X <- apply(X, 2, as.double)
 esp <- rnorm(nn)
 
 causal_vars <- sample.int(pp, size = 3)
-# (coefs <- rnorm(4))
-coefs <- rep(1, times = length(causal_vars) + 1)
-# y <- coefs[1]*X[,1] + coefs[2]*X[,2] + coefs[3]*X[,10] + coefs[4]*U + esp
+coefs <- rnorm(length(causal_vars) + 1)
+# coefs <- rep(1, times = length(causal_vars) + 1)
 y <- cbind(X[, causal_vars, drop=F], U) %*% as.matrix(coefs) + esp
 
 print(data.frame(variable = c(paste0("X", causal_vars), "U"), 
@@ -85,8 +83,8 @@ range(Wmat)
 ```{r}
 res_cl <- clamp(X, y, W=Wmat, family = "linear", 
                 # standardize = F, 
-                robust_method = "huber",
-                verbose = F)
+                # robust_method = "huber",
+                verbose = T)
 ```
 
 ```{r}
@@ -96,48 +94,44 @@ summarize_coefficients(res_cl)
 
 
 ```{r}
-cor(Pmat[, causal_vars, drop=F], Pmat[, c(8, 849, 316, 638, 779, 232)])
-```
-
-```{r}
-sub_idx <- c(causal_vars, 8, 849, 316, 638, 779, 232)
-Xsub <- X[, sub_idx, drop=F]
-Wsub <- Wmat[, sub_idx, drop=F]
-res_cl2 <- clamp(Xsub, y, Wsub, family = "linear")
-
-summarize_coefficients(res_cl2)
+plot(res_cl$elbo[-(1:5)], type = "o")
+plot(res_cl$loglik[-(1:5)], type = "o")
 ```
 
 
-
-
-## Bootstrap 
-
-Whenever we run the bootstrap trials to check false discoveries, 
-we need to re-compute the 
+### Compare with `susieR`
 
 ```{r}
-B <- 100
-pip_boot <- matrix(NA_real_, nrow = B, ncol = pp)
+res_su <- susieR::susie(X, y)
+summarize_coefficients(res_su)
+clamp_plot(res_su, y = "PIP", effect_indices = causal_vars)
+```
 
-for ( b in 1:B ) {
-  bootidx <- sample(nrow(X), replace = T)
-  
-  Xboot <- X[bootidx, , drop=F]
-  Uboot <- U[bootidx]
-  
-  PSboot <- apply(Xboot, 2, 
-                    function(x) predict(glm(x ~ Uboot, family = binomial),
-                                        type = "response"))
-  Wmatboot <- ifelse(Xboot == 1, 1/PSboot, 1/(1-PSboot))
-  
-  res_cl_boot <- clamp(Xboot, y[bootidx], 
-                       W = Wmatboot,
-                       # maxL = 5, 
-                       family = "linear")
-  
-  # summarize_coefficients(res_cl_boot)
-  pip_boot[b, ] <- clamp_get_pip(res_cl_boot)
+### Compare with LASSO
+
+```{r, message=F, warning=F}
+library(tidyverse)
+myPalette2 <- c("#E69F00", "#999999")
+plot_select_results <- function(vals, effect_idx) {
+  tibble(vals = vals) %>%
+    mutate(id = 1 : n()) %>%
+    mutate(true_label = if_else(id %in% effect_idx, "causal", "noncausal")) %>%
+    arrange(desc(true_label)) %>%
+    ggplot(aes(x = id, y = vals, color = as.factor(true_label))) +
+    geom_point(size = 3) +
+    scale_color_manual(values = myPalette2) +
+    labs(x = "variable", color = "") +
+    theme_classic()
 }
+```
+
+
+```{r}
+library(glmnet)
+res_la <- cv.glmnet(X, y, family = "gaussian", alpha = 1)
+
+plot_select_results(abs(as.numeric(coef(res_la, s = "lambda.min"))[-1]), 
+                    effect_idx = causal_vars) +
+  ylab("|coefficients|")
 ```
 
