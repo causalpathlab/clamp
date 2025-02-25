@@ -281,6 +281,10 @@ gsusie <- function (X, y,
 
   if (family %in% c("logistic", "poisson")) {
 
+    # Since GLM applies iterative reweighted least-squares,
+    # The centralization and standardization processes should not be applied
+    # here. Instead, they should be applied in the `update_each_effect`.
+
     ## Opt out: scaling X but not centralizing it.
     out = compute_colstats(X, center = standardize, scale = standardize)
 
