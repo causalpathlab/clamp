@@ -49,22 +49,30 @@ init_setup <- function (n, p, maxL, family,
 
   if(is.null(residual_variance)) {
 
-    if (family == "linear") {
+    switch(family,
+           "linear" = {
+             ## for linear models,
+             ## 1. initialize residual_variance as varY
+             residual_variance = varY
+             ## 2. initialize prior_varB as follows...
+             prior_varB = scaled_prior_variance * varY
+           },
 
-      ## for linear models,
-      ## 1. initialize residual_variance as varY
-      residual_variance = varY
-      ## 2. initialize prior_varB as follows...
-      prior_varB = scaled_prior_variance * varY
+           "logistic" = {
+             ## for generalized linear models,
+             ## 1. initialize residual_variance as 1
+             residual_variance = 1
+             ## 2. initialize prior_varB as 1
+             prior_varB = 1
+           },
 
-    } else { ## if (family %in% c("logistic", "poisson"))
-
-      ## for generalized linear models,
-      ## 1. initialize residual_variance as 1
-      residual_variance = 1
-      ## 2. initialize prior_varB as 1
-      prior_varB = 1
-    }
+           "poisson" = {
+             ## for generalized linear models,
+             ## 1. initialize residual_variance as 1
+             residual_variance = 1
+             ## 2. initialize prior_varB as 1
+             prior_varB = 1
+           })
   }
 
   if(is.null(prior_inclusion_prob)){
@@ -84,6 +92,7 @@ init_setup <- function (n, p, maxL, family,
            mu     = matrix(0,nrow = maxL,ncol = p),
            mu2    = matrix(0,nrow = maxL,ncol = p),
            betahat = matrix(0, nrow = maxL, ncol = p),  ## MLE
+           shat2 = matrix(0, nrow = maxL, ncol = p), ## shat2 of MLE
            Xr     = rep(0,n),
            # KL     = rep(as.numeric(NA),maxL),
            EWR2 = rep(as.numeric(NA), maxL),
