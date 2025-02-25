@@ -37,7 +37,8 @@ compute_colstats = function (X, W = NULL, center = TRUE, scale = TRUE) {
   } else { # if (!is.null(W))
 
     # check the dimension of W
-    if (!all(dim(W) == dim(X))) stop("The dimensions of W and X do not match!")
+    if (!all(dim(W) == dim(X)))
+      stop("The dimensions of W and X do not match!")
 
     # compute the weighted means and standard deviation.
     if (center)

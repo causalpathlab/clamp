@@ -90,8 +90,9 @@ clamp_get_posterior_mean = function (res, prior_tol = 1e-9) {
 
   # Now extract relevant rows from alpha matrix.
   if (length(include_idx) > 0)
-    return(colSums((res$alpha*res$mu)[include_idx,,drop=FALSE])/
-             res$X_column_scale_factors)
+    # return(colSums((res$alpha*res$mu)[include_idx,,drop=FALSE])/
+    #          res$X_column_scale_factors)
+    return(colSums((res$alpha*res$mu)[include_idx,,drop=FALSE]))
   else
     return(numeric(ncol(res$mu)))
 }
@@ -110,9 +111,11 @@ clamp_get_posterior_sd <- function (res, prior_tol = 1e-9) {
 
   # Now extract relevant rows from alpha matrix.
   if (length(include_idx) > 0)
+    # return(sqrt(colSums((res$alpha * res$mu2 -
+    #                        (res$alpha*res$mu)^2)[include_idx,,drop=FALSE]))/
+    #          (res$X_column_scale_factors))
     return(sqrt(colSums((res$alpha * res$mu2 -
-                           (res$alpha*res$mu)^2)[include_idx,,drop=FALSE]))/
-             (res$X_column_scale_factors))
+                           (res$alpha*res$mu)^2)[include_idx,,drop=FALSE])))
   else
     return(numeric(ncol(res$mu)))
 }
@@ -162,9 +165,11 @@ clamp_get_posterior_samples = function (res, num_samples) {
   else
     include_idx = 1:nrow(res$alpha)
 
-  posterior_mean = sweep(res$mu, 2, res$X_column_scale_factors,"/")
-  posterior_sd = sweep(sqrt(res$mu2 - (res$mu)^2),2,
-                       res$X_column_scale_factors,"/")
+  # posterior_mean = sweep(res$mu, 2, res$X_column_scale_factors,"/")
+  # posterior_sd = sweep(sqrt(res$mu2 - (res$mu)^2),2,
+  #                      res$X_column_scale_factors,"/")
+  posterior_mean = res$mu
+  posterior_sd = sqrt(res$mu2 - (res$mu)^2)
 
   pip = res$alpha
   L = nrow(pip)

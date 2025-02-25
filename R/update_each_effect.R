@@ -1,4 +1,5 @@
-#' @title Update each effect once in a linear model; each sub-model is a weighted SER.
+#' @title Update each effect once in a linear model; each sub-model is a
+#' IPW-SER.
 #'
 #' @param X An (n by p) matrix of regressor variables
 #'
@@ -6,19 +7,30 @@
 #'
 #' @param s A clamp fit
 #'
-#' @param W An (n by p) matrix of weights. If \code{W=NULL}, it reduces to an SER
+#' @param W An (n by p) matrix of weights. If \code{W=NULL}, it reduces to an
+#' SER
 #'
-#' @param mle_variance_estimator The estimation method of the variance of the MLEs,
-#' or equivalently, the variance of (Horvitz-Thompson) ATE estimators.
-#' \code{"bootstrap"} estimates the variances from \code{nboots} bootstrap replicates,
+#' @param mle_estimator The estimation method of the ATE estimator.
+#' \code{"mHT"} applies the modified Horvitz-Thompson estimator, and
+#' \code{"WLS"} applies the equivalent weighted least-squares estimator.
+#'
+#' @param mle_variance_estimator The estimation method of the variance of the
+#' MLEs, or equivalently, the variance of (Horvitz-Thompson) ATE estimators.
+#' \code{"bootstrap"} estimates the variances from \code{nboots} bootstrap
+#' replicates,
 #' \code{"sandwich"} uses sandwich robust variance estimators.
 #' \code{"naive"} calculates the variances from the weighted least square model,
 #' treating weights as constants (not recommended).
 #'
-#' @param nboots The number of bootstrap replicates. By default, \code{nboots=100}.
+#' @param nboots The number of bootstrap replicates. By default,
+#' \code{nboots=100}.
 #'
-#' @param seed Random seed utilized when \code{mle_variance_estimator="bootstrap"}.
+#' @param seed Random seed utilized when
+#' \code{mle_variance_estimator="bootstrap"}.
 #' If \code{seed=NULL}, its default is \code{Sys.time()}.
+#'
+#' @param standardize logical. If \code{standardize=TRUE}, then each column of
+#'. X will be standardized by its corresponding weighted sd.
 #'
 #' @param estimate_prior_variance boolean indicating whether to
 #'   estimate prior variance
@@ -27,7 +39,7 @@
 #'   compare likelihood between current estimate and zero the null
 #'
 #' @param abnormal_proportion a value between 0 and 1. If the number of detected
-#'   abnormal subjects exceeds \eqn{abnormal_proportion * nrow(X)},
+#'   abnormal subjects exceeds \code{abnormal_proportion * nrow(X)},
 #'   stop fitting the model.
 #'
 #' @param robust_method A string, whether and which robust method is applied
@@ -40,7 +52,8 @@
 #'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
 update_each_effect <- function (X, y, s, W=NULL, model,
-                  mle_variance_estimator = c("bootstrap", "sandwich", "naive"),
+                  mle_estimator = c("mHT", "WLS"),
+                  mle_variance_estimator = c("bootstrap", "sandwich"),
                   nboots = 100,
                   seed = NULL,
                   estimate_prior_variance = FALSE,
@@ -54,6 +67,7 @@ update_each_effect <- function (X, y, s, W=NULL, model,
 
   robust_method    <- match.arg(robust_method)
   robust_estimator <- match.arg(robust_estimator)
+  mle_estimator    <- match.arg(mle_estimator)
   mle_variance_estimator <- match.arg(mle_variance_estimator)
 
   # Check weight matrix W
@@ -61,34 +75,9 @@ update_each_effect <- function (X, y, s, W=NULL, model,
       !( (length(W) == nrow(X)) | all(dim(W) == dim(X))  ) )
     stop("The dimension of W does not match with that of input X!")
 
+
   # Compute the residuals
-  if (s$family == "linear") {
-
-    ## compute the residuals
-    current_R <- y - s$Xr
-
-    ## IRLS is not applicable for linear models,
-    ## for the consistency of codes, let irls_weight = 1
-    irls_weight <- rep(1, times = length(y))
-
-  }
-  #  else { ## if (s$family %in% c("logistic", "poisson"))
-  #
-  #   # Iterative reweighted least-squared (IRLS) for generalized linear models
-  #
-  #   ## update the pseudo-response
-  #   psd_rsp <- model$pseudo_response(s$Xr, y)
-  #
-  #   ## update the overall log-pseudo-variance
-  #   log_psd_var <- model$log_pseudo_var(s$Xr)
-  #   ## a n-dim vector of weights yielded from IRLS
-  #   irls_weight <- exp(-log_psd_var)
-  #   ## check if there are any abnormal points based on irls_weight
-  #   s$abnormal_subjects <- check_abnormal_subjects(irls_weight)
-  #
-  #   ## compute the residuals
-  #   current_R <- psd_rsp - s$Xr
-  # }
+  current_R <- y - s$Xr
 
   # Robust estimation regarding W/residuals.
   # The importance weights are assigned to each observation.
@@ -110,11 +99,11 @@ update_each_effect <- function (X, y, s, W=NULL, model,
 
   # Define the weight (matrix)
   if (is.matrix(W)) {
-    WW <- sweep(W, 1, irls_weight * s$importance_weight, "*")
+    WW <- sweep(W, 1, s$importance_weight, "*")
   } else if (is.vector(W)) {
-    WW <- W * irls_weight * s$importance_weight
-  } else {  ## is.null(W)
-    WW <- irls_weight * s$importance_weight
+    WW <- W * s$importance_weight
+  } else {
+    WW <- s$importance_weight
   }
 
 
@@ -129,28 +118,29 @@ update_each_effect <- function (X, y, s, W=NULL, model,
     } else {
       X_sub         <- remove_abnormal_subjects(s$abnormal_subjects, X)
       current_R_sub <- remove_abnormal_subjects(s$abnormal_subjects, current_R)
-      WW_sub         <- remove_abnormal_subjects(s$abnormal_subjects, WW)
+      WW_sub        <- remove_abnormal_subjects(s$abnormal_subjects, WW)
 
       ## inherit the attributes of X_sub from X
       attr(X_sub, "scaled:scale")  <- attr(X, "scaled:scale")
       attr(X_sub, "scaled:center") <- attr(X, "scaled:center")
     }
 
-
     # Update each effect
     for (l in 1:maxL) {
 
       ## residuals belonging to layer l
-      Rl <- current_R + compute_Xb(X_sub, s$alpha[l,] * s$mu[l,])
+      Rl <- current_R + compute_Xb(X = X_sub, b = s$alpha[l,]*s$mu[l,])
 
-      ## fit the WSER
-      res <- weighted_single_effect_regression(y=Rl, X=X_sub,
+
+      ## fit the ipw-ser
+      res <- ipw_single_effect_regression(y=Rl, X=X_sub,
                                 W = WW_sub,
                                 residual_variance = s$sigma2,
                                 prior_inclusion_prob = s$pie,
                                 prior_varB = s$prior_varB[l],
                                 optimize_prior_varB = estimate_prior_method,
                                 check_null_threshold = check_null_threshold,
+                                mle_estimator = mle_estimator,
                                 mle_variance_estimator = mle_variance_estimator,
                                 nboots = nboots,
                                 seed = seed)
@@ -161,17 +151,19 @@ update_each_effect <- function (X, y, s, W=NULL, model,
       s$mu2[l,]       = res$mu2
       s$alpha[l,]     = res$alpha
       s$betahat[l,]   = res$betahat
+      s$shat2[l,]     = res$shat2
       s$prior_varB[l] = res$prior_varB
       s$logBF[l]      = res$logBF_model
       s$logBF_variable[l,] = res$logBF
-      s$EWR2[l]      = res$EWR2
-      s$Eloglik[l]     = res$Eloglik
+      s$EWR2[l]       = res$EWR2
+      s$Eloglik[l]    = res$Eloglik
 
       # Update the current residuals
       current_R <- Rl - compute_Xb(X_sub, s$alpha[l,] * s$mu[l,])
     }
 
     s$Xr <- compute_Xb(X, colSums(s$alpha * s$mu))  # update linear predictor
+    # print(sum(s$Xr^2))
   }
 
   return(s)
