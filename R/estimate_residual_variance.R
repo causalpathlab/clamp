@@ -5,6 +5,7 @@
 # @param s a susie fit
 estimate_residual_variance_fun = function (X, y, s) {
   n = nrow(X)
+
   return((1/n)*get_ER2(X,y,s))
 }
 
