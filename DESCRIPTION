@@ -12,7 +12,9 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.2.3
 Imports: 
     matrixStats,
-    sandwich
+    sandwich,
+    stats,
+    Matrix
 Suggests: 
     knitr,
     rmarkdown,
