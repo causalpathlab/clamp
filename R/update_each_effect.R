@@ -51,7 +51,7 @@
 #'   \code{robust_estimator="M"} indicates the M-estimator is applied, and
 #'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
-update_each_effect <- function (X, y, s, W=NULL, model,
+update_each_effect <- function (X, y, s, W=NULL,
                   mle_estimator = c("mHT", "WLS"),
                   mle_variance_estimator = c("bootstrap", "sandwich"),
                   nboots = 100,

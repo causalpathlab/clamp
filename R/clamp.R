@@ -253,11 +253,6 @@ clamp <- function (X, y,
   # Process input mle_variance_estimator
   mle_variance_estimator = match.arg(mle_variance_estimator)
 
-  # # Process input family and the related functions
-  # family = match.arg(family)
-  # model <- list()
-  # model$family <- family
-
   # Check input X.
   if (!(is.double(X) & is.matrix(X)) & !inherits(X,"CsparseMatrix") &
       is.null(attr(X,"matrix.type")))
@@ -324,7 +319,6 @@ clamp <- function (X, y,
 
   # Check weight matrix W
   if (!is.null(W)){
-
     # Check whether the dimensions of W and X match
     if (!( (length(W) == nrow(X)) | all(dim(W) == dim(X)) ))
       stop("The dimensions of W and input X do not match!")
@@ -362,7 +356,7 @@ clamp <- function (X, y,
     # if !is.null(seed), update the random seed in every iteration.
     if (!is.null(seed)) {seed <- seed + tt}
 
-    s <- update_each_effect(X = X, y = y, s = s, W = W, model = model,
+    s <- update_each_effect(X = X, y = y, s = s, W = W,
                           mle_estimator = mle_estimator,
                           mle_variance_estimator = mle_variance_estimator,
                           nboots = nboots,
