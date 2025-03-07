@@ -1,0 +1,228 @@
+---
+title: "Finding causal variables using a logistic regression based CLAMP model"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{clamp-logistic-causal}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  fig.width = 5, fig.height = 4, fig.align = "center", fig.cap = "&nbsp;", 
+  dpi = 120
+)
+```
+
+```{r setup, message=FALSE}
+# library(clamp)
+library(matrixStats)
+devtools::load_all(".")
+```
+
+## Toy example 1: Synthetic data where input data $\mathbf{X}$ is (somehow) highly correlated
+
+Here is a simple example:
+
+Let $p=10$ and $n=1000$.
+
+We simulate each input variable (treatment) $X_j$ with
+
+$$
+X_{ij}=1 \sim \operatorname{Bern}(\operatorname{expit}(L^*_{ij})), 
+$$
+
+where we let the (observable) confounding factor $U \sim N(0, 1^2)$, and the ture latent confounding factors of each subject $U_{ij}$ to be
+
+$$
+u^*_{ij}=\zeta_j u_i +\delta_{ij}, \ \delta_{ij} \sim N(0, 0.5^2)
+$$
+
+and the scalar $\zeta_j = (j-5.5)/6$.
+
+For $j=1, \ldots, 10$, we let
+
+$$
+g_j(t) = \frac{1}{1+\exp\left(- t\right)}
+$$
+
+This is to let logistic regression model catch the correct propensity score.
+
+The binary response $y$ is generated with
+
+<!-- $$ -->
+<!-- y_i = \beta_{1} x_{i1} + \beta_{3} x_{i3} + \beta_{9} x_{i9} + \theta_{u} u_i + \epsilon_i, \ \epsilon_i \sim N(0, (1-h^2)) -->
+<!-- $$ -->
+
+$$
+y_i|(\mathbf{x}_i, u_i) \sim \operatorname{Bern}(p_i),
+$$
+
+where 
+
+$$
+p_i = \operatorname{expit}(\eta_i), 
+$$
+
+$$
+\eta_i = \beta_{1} x_{i1} + \beta_{3} x_{i3} + \beta_{9} x_{i9} + \theta_{u} u_i
+$$
+
+where, for simplicity, the regression coefficients 
+$\beta_1, \beta_3, \beta_9, \theta_u$ are 1. 
+
+
+```{r expit}
+expit <- function(x) {
+  ifelse(x > 0, 1/(1 + exp(-x)), exp(x) / (1 + exp(x)))
+}
+```
+
+
+```{r}
+set.seed(103103)
+nn <- 1000
+pp <- 10
+U <- rnorm(nn)
+zeta <- ((1:pp) -5.5) / 6
+delta <- matrix(rnorm(nn*pp, 0, 0.2), nrow=nn)
+UU <- outer(U, zeta) + delta
+
+Pmat <- expit(UU)  # Prob matrix
+
+X <- sapply(1:pp, function(j) {rbinom(nn, 1, Pmat[,j])})
+X <- apply(X, 2, as.double)
+
+causal_vars <- c(1, 3, 10)
+
+## output
+# coefs <- rnorm(length(causal_vars) + 1)
+coefs <- rep(1, times = length(causal_vars) + 1)
+print(data.frame(variable = c(paste0("X", causal_vars), "U"), 
+                 effect_size = coefs))
+
+Eta <- cbind(X[, causal_vars, drop=F], U) %*% as.matrix(coefs)
+y <- rbinom(nn, 1, expit(Eta))
+```
+
+Check the probability matrix:
+
+```{r}
+# Check the probability matrix
+hist(as.numeric(Pmat))
+# apply(Pmat, 2, function(x){sum(x<= 0.1 | x >= 0.9)})
+range(Pmat)
+```
+
+### Step 1: estimate the propensity scores and construct the weight matrix
+
+```{r estimate ps}
+PS <- matrix(nrow = nrow(X), ncol = ncol(X))
+for (j in 1 : ncol(X)) {
+  PS[, j] <- predict(glm(X[, j] ~ U, family = binomial), type = "response")
+}
+```
+
+Check the propensity score matrix
+
+```{r}
+# Check the probability matrix
+hist(as.numeric(PS))
+# apply(PS, 2, function(x){sum(x<= 0.1 | x >= 0.9)})
+range(PS)
+```
+
+```{r}
+Wmat <- ifelse(X == 1, 1/PS, 1/(1-PS))
+```
+
+### Step 2: fit the clamp model
+
+```{r}
+res_cl <- clamp(X, y, W=Wmat, family = "logistic", 
+                standardize = F,
+                estimate_residual_variance = F)
+```
+
+```{r}
+summarize_coefficients(res_cl)
+```
+
+```{r}
+summary(res_cl)
+```
+
+```{r}
+clamp_plot(res_cl, y = "PIP", effect_indices = causal_vars)
+```
+
+
+### Comparison 0: What if the confounder U is not adjusted?
+
+```{r}
+res_cl_v0 <- clamp(X, y, family = "logistic", estimate_residual_variance = F)
+```
+
+```{r}
+summarize_coefficients(res_cl_v0)
+```
+
+```{r}
+clamp_plot(res_cl_v0, y = "PIP", effect_indices = causal_vars)
+```
+
+
+## Toy example 2: Genotype data
+
+```{r}
+`%&%` <- function(a,b) paste0(a,b)
+example.data.dir <- "./example-data/"
+
+X <- readRDS(example.data.dir %&% "genotype-subset-1.rds")
+nn <- nrow(X)  # 500
+pp <- ncol(X)  # 2000
+
+n_effect_vars <- 3
+## effect variables with non-zero effects
+causal_vars <- c(83, 1133, 1406)
+
+## effect size (before scaling)
+effect_size <- rep(1, times = n_effect_vars)
+
+## linear predictor
+eta <- scale(X[,causal_vars, drop=F] %*% as.matrix(effect_size))
+
+set.seed(20241003)
+y <- rbinom(nn, 1, expit(eta))
+```
+
+
+### Step 0: "extract" the confounder, i.e., the first principal component of $\mathbf{X}$
+
+```{r}
+pc <- prcomp(X, rank. = 1)
+```
+
+```{r}
+screeplot(pc)
+```
+
+We temporarily treat the first PC (only) as the confounder. 
+
+```{r}
+U <- pc$x
+```
+
+
+### Step 1: estimate the propensity scores and construct the weight matrix
+
+```{r}
+
+```
+
+
+
+
+
+

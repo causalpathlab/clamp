@@ -90,8 +90,9 @@ clamp_get_posterior_mean = function (res, prior_tol = 1e-9) {
 
   # Now extract relevant rows from alpha matrix.
   if (length(include_idx) > 0)
-    return(colSums((res$alpha*res$mu)[include_idx,,drop=FALSE])/
-             res$X_column_scale_factors)
+    # return(colSums((res$alpha*res$mu)[include_idx,,drop=FALSE])/
+    #          res$X_column_scale_factors)
+    return(colSums((res$alpha*res$mu)[include_idx,,drop=FALSE]))
   else
     return(numeric(ncol(res$mu)))
 }
@@ -111,8 +112,7 @@ clamp_get_posterior_sd <- function (res, prior_tol = 1e-9) {
   # Now extract relevant rows from alpha matrix.
   if (length(include_idx) > 0)
     return(sqrt(colSums((res$alpha * res$mu2 -
-                           (res$alpha*res$mu)^2)[include_idx,,drop=FALSE]))/
-             (res$X_column_scale_factors))
+                           (res$alpha*res$mu)^2)[include_idx,,drop=FALSE])))
   else
     return(numeric(ncol(res$mu)))
 }
@@ -162,9 +162,11 @@ clamp_get_posterior_samples = function (res, num_samples) {
   else
     include_idx = 1:nrow(res$alpha)
 
-  posterior_mean = sweep(res$mu, 2, res$X_column_scale_factors,"/")
-  posterior_sd = sweep(sqrt(res$mu2 - (res$mu)^2),2,
-                       res$X_column_scale_factors,"/")
+  # posterior_mean = sweep(res$mu, 2, res$X_column_scale_factors,"/")
+  # posterior_sd = sweep(sqrt(res$mu2 - (res$mu)^2),2,
+  #                      res$X_column_scale_factors,"/")
+  posterior_mean = res$mu
+  posterior_sd = sqrt(res$mu2 - (res$mu)^2)
 
   pip = res$alpha
   L = nrow(pip)
@@ -242,9 +244,7 @@ clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
     }
   }
 
-  null_index = 0
   include_idx = rep(TRUE,nrow(res$alpha))
-  if (!is.null(res$null_index)) null_index = res$null_index
   if (is.numeric(res$prior_varB)) include_idx = res$prior_varB > 1e-9
   # L x P binary matrix.
   status = in_CS(res$alpha, coverage)
@@ -278,9 +278,6 @@ clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
   } else {
     purity = NULL
     for (i in 1:length(cs)) {
-      if (null_index > 0 && null_index %in% cs[[i]])
-        purity = rbind(purity,c(-9,-9,-9))
-      else
         purity =
           rbind(purity,
                 matrix(get_purity(cs[[i]],X,Xcorr,squared,n_purity,use_rfast),1,3))
@@ -381,10 +378,6 @@ clamp_get_pip = function (res, prune_by_cs = FALSE, prior_tol = 1e-9) {
 
   if (inherits(res,c("clamp", "susie"))) {
 
-    # Drop null weight columns.
-    if (!is.null(res$null_index) && res$null_index > 0)
-      res$alpha = res$alpha[,-res$null_index,drop=FALSE]
-
     # Drop the single-effects with estimated prior of zero.
     if (is.numeric(res$prior_varB))
       include_idx = which(res$prior_varB > prior_tol)
@@ -431,14 +424,14 @@ in_CS_x = function (x, coverage = 0.9) {
 # susie credible sets.
 #' @keywords internal
 in_CS = function (res, coverage = 0.9) {
-  if (inherits(res,"clamp"))
+  if (inherits(res, c("clamp", "susie")))
     res = res$alpha
   return(t(apply(res,1,function(x) in_CS_x(x,coverage))))
 }
 
 #' @keywords internal
 n_in_CS = function(res, coverage = 0.9) {
-  if (inherits(res,"clamp"))
+  if (inherits(res,c("clamp", "susie")))
     res = res$alpha
   return(apply(res,1,function(x) n_in_CS_x(x,coverage)))
 }

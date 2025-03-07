@@ -13,7 +13,7 @@
 #'
 #' @param family A description of error distribution and link function used in
 #'   the model. \code{family="linear"} stands for a linear regression model
-#'   with identity link, \code{family="binomial"} stands for a logistic
+#'   with identity link, \code{family="logistic"} stands for a logistic
 #'   regression model, and \code{family="poisson"} stands for a Poisson
 #'   regression model.
 #'
@@ -34,9 +34,6 @@
 #' @param prior_inclusion_prob A vector of length p, in which each entry
 #'   gives the prior probability that corresponding column of X has a
 #'   nonzero effect on the outcome, y.
-#'
-#' @param null_weight Prior probability of no effect (a number between
-#'   0 and 1, and cannot be exactly 1).
 #'
 #' @param standardize If \code{standardize = TRUE}, standardize the
 #'   columns of X to unit variance prior to fitting (or equivalently
@@ -83,6 +80,21 @@
 #'   note of caution that setting this to a value greater than zero may
 #'   lead the IBSS fitting procedure to occasionally decrease the ELBO.
 #'
+#' @param mle_variance_estimator The method to estimate the variances of
+#'   IPW estimators. \code{"bootstrap"} estimates the variance via 100
+#'   bootstrap replicates, \code{"sandwich"} computes the robust sandwich
+#'   variance estimates, and \code{"naive"} calculates the variances based
+#'   on the corresponding weighted linear regression models.
+#'
+#' @param burn_in A number, referring to the number of initial iterations
+#'   being discarded. It is used to check the convergence when
+#'   \code{mle_variance_estimator="bootstrap"}. Some pilot simulations are
+#'   recommended to determine the burn-in period.
+#'
+#' @param converge_window A number. If, after the burn-in period, the
+#'   average of ELBO of \code{converge_window} successive iterations converges,
+#'   then the algorithm is considered converged.
+#'
 #' @param prior_tol When the prior variance is estimated, compare the
 #'   estimated value to \code{prior_tol} at the end of the computation,
 #'   and exclude a single effect from PIP computation if the estimated
@@ -92,9 +104,17 @@
 #'   residual variance. It is only relevant when
 #'   \code{estimate_residual_variance = TRUE}.
 #'
-#' @param robust_method
+#' @param abnormal_proportion a value between 0 and 1. If the number of detected
+#'   abnormal subjects exceeds \eqn{abnormal_proportion * nrow(X)},
 #'
-#' @param robust_estimator
+#' @param robust_method A string, whether and which robust method is applied
+#'   when fitting the model. \code{robust_method="none"} specifies that no
+#'   robust method is applied. \code{robust_method="huber"} specifies that the
+#'   Huber weighting method is applied.
+#'
+#' @param robust_estimator A string, which robust estimator is applied.
+#'   \code{robust_estimator="M"} indicates the M-estimator is applied, and
+#'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
 #' @param coverage A number between 0 and 1 specifying the
 #'   \dQuote{coverage} of the estimated confidence sets.
@@ -184,6 +204,7 @@
 
 #'
 #' @importFrom stats var
+#' @importFrom stats weighted.mean
 #' @importFrom utils modifyList
 #'
 #' @export
@@ -191,26 +212,32 @@
 clamp <- function (X, y,
                    W = NULL, ## IPW matrix, should be of same size of X
                    maxL = min(10,ncol(X)),
-                   family = c("linear", "binomial", "poisson"),
+                   # family = "linear",
                    scaled_prior_variance = 0.2,
                    residual_variance = NULL,
                    prior_inclusion_prob = NULL,
-                   null_weight = 0,
-                   standardize = TRUE,
+                   standardize = FALSE,
                    intercept = TRUE,
                    estimate_residual_variance = TRUE,
                    estimate_prior_variance = TRUE,
                    estimate_prior_method = c("optim", "EM", "simple"),
                    check_null_threshold = 0,
+                   mle_estimator = c("mHT", "WLS"),
+                   mle_variance_estimator = c("bootstrap", "sandwich", "naive"),
+                   nboots = 100,
+                   seed = NULL,
+                   burn_in = 10,
+                   converge_window = 10,
                    prior_tol = 1e-9,
                    residual_variance_upperbound = Inf,
+                   abnormal_proportion = 0.5,
                    robust_method = c("none", "huber"),
                    robust_estimator = c("M", "S"),
                    coverage = 0.95,
                    min_abs_corr = 0.5,
                    na.rm = FALSE,
-                   max_iter = 500,
-                   tol = 1e-3,
+                   max_iter = 200,
+                   tol = 1e-2,
                    verbose = FALSE,
                    track_fit = FALSE,
                    residual_variance_lowerbound = var(drop(y))/1e4,
@@ -223,26 +250,17 @@ clamp <- function (X, y,
   # Process input robust_estimator
   robust_estimator = match.arg(robust_estimator)
 
+  # Process input mle_variance_estimator
+  mle_variance_estimator = match.arg(mle_variance_estimator)
+
   # Check input X.
   if (!(is.double(X) & is.matrix(X)) & !inherits(X,"CsparseMatrix") &
       is.null(attr(X,"matrix.type")))
     stop("Input X must be a double-precision matrix, or a sparse matrix, or ",
          "a trend filtering matrix")
-  if (is.numeric(null_weight) && null_weight == 0)
-    null_weight = NULL
-  if (!is.null(null_weight) && is.null(attr(X,"matrix.type"))) {
-    if (!is.numeric(null_weight))
-      stop("Null weight must be numeric")
-    if (null_weight < 0 || null_weight >= 1)
-      stop("Null weight must be between 0 and 1")
-    if (missing(prior_inclusion_prob))
-      prior_inclusion_prob = c(rep(1/ncol(X) * (1 - null_weight),ncol(X)),
-                               null_weight)
-    else
-      prior_inclusion_prob = c(prior_inclusion_prob * (1-null_weight),
-                               null_weight)
-    X = cbind(X,0)
-  }
+  ## sparse matrix?!
+
+  # Check input.
   if (anyNA(X))
     stop("Input X must not contain missing values")
   if (anyNA(y)) {
@@ -253,109 +271,162 @@ clamp <- function (X, y,
     } else
       stop("Input y must not contain missing values")
   }
-  p = ncol(X)
+
+  ## Check the column names of input X
+  if (is.null(colnames(X)))
+    colnames(X) <- paste0("X", 1:ncol(X))
+
+
+  # Center and scale input.
+  if (mle_estimator == "mHT") {
+    # When applying the modified Horvitz-Thompson estimator,
+    # the input X and response Y does not need to be scaled.
+    # Each entry of X should be either 0 or 1.
+    out = compute_colstats(X, center = F, scale = F)
+  } else if (mle_estimator == "WLS") {
+    out = compute_colstats(X, W, center = intercept, scale = standardize)
+  }
+  # Set three attributes for matrix X: attr(X,'scaled:center') is a
+  # p-vector of column means of X if center=TRUE, a p vector of zeros
+  # otherwise; 'attr(X,'scaled:scale') is a p-vector of column
+  # standard deviations of X if scale=TRUE, a p vector of ones
+  # otherwise;
+  attr(X, "scaled:center") = out$scaled_center
+  attr(X, "scaled:scale")  = out$scaled_scale
+  # 'attr(X,'d') is a p-vector of column sums of
+  # X.standardized^2,' where X.standardized is the matrix X centered
+  # by attr(X,'scaled:center') and scaled by attr(X,'scaled:scale').
+  # Requires the package `matrixStats`.
+  ## attr(X, "d") is applied when computing ERSS (`get_ER2()`), which is
+  ## to estimate the residual variance.
+  ## It seems that the squared X should not be weighted?!
+  attr(X, "d") = out$d
+
+  if (intercept) {  ## do not affect the estimation of beta (MLE)
+    mean_y = mean(y)
+    attr(y, "scaled:center") <-
+      sapply(1:ncol(W), function(j) weighted.mean(x=y, w=W[,j]))
+  }
+
+
+  n <- nrow(X)
+  p <- ncol(X)
   if (p > 1000 & !requireNamespace("Rfast",quietly = TRUE))
     warning_message("For an X with many columns, please consider installing",
                     "the Rfast package for more efficient credible set (CS)",
                     "calculations.", style='hint')
 
-  # Process input family
-  family = match.arg(family)
-  model <- list()
-  model$type <- family
-  model$loglik <- Eloglik_linear
-  # switch(family,
-  #        "linear" =
-  #          {
-  #            model$loglik <- Eloglik_linear
-  #          },
-  #        "binomial" =
-  #          {
-  #            model$log_psd_var <-  ## logw2
-  #            model$psd_resp ## zz
-  #            model$loglik <-
-  #          },
-  #         "poisson" ={}
-  #        )
-
-  # Check input y.
-  n = nrow(X)
-  mean_y = mean(y)
 
   # Check weight matrix W
-  if (!is.null(W) &
-      !(length(W) %in% c(nrow(X), nrow(X) * ncol(X))))
-    stop("The dim of Weights does not match with the dim of input X!")
+  if (!is.null(W)){
+    # Check whether the dimensions of W and X match
+    if (!( (length(W) == nrow(X)) | all(dim(W) == dim(X)) ))
+      stop("The dimensions of W and input X do not match!")
+  }
 
-  # Center and scale input.
-  if (intercept)
-    y_ = y - mean_y
-
-  # Set three attributes for matrix X: attr(X,'scaled:center') is a
-  # p-vector of column means of X if center=TRUE, a p vector of zeros
-  # otherwise; 'attr(X,'scaled:scale') is a p-vector of column
-  # standard deviations of X if scale=TRUE, a p vector of ones
-  # otherwise; 'attr(X,'d') is a p-vector of column sums of
-  # X.standardized^2,' where X.standardized is the matrix X centered
-  # by attr(X,'scaled:center') and scaled by attr(X,'scaled:scale').
-  out = compute_colstats(X,center = intercept, scale = standardize)
-  attr(X,"scaled:center") = out$scaled_center
-  attr(X,"scaled:scale")  = out$scaled_scale
-  attr(X,"d") = out$d  ## applied in computing ERSS (`get_ER2()`)
-
-  # Initialize susie fit.
-  s <- init_setup(n, p, maxL, family,
-                  scaled_prior_variance,
-                  residual_variance,
-                  prior_inclusion_prob,
-                  null_weight,
-                  as.numeric(var(y)),
-                  standardize)
+  # Initialize clamp fit.
+  s <- init_setup(n=n, p=p, maxL=maxL, family="linear",
+                  scaled_prior_variance=scaled_prior_variance,
+                  residual_variance=residual_variance,
+                  prior_inclusion_prob=prior_inclusion_prob,
+                  varY=as.numeric(var(y)),
+                  standardize=standardize)
   s <- init_finalize(s)
+
 
   # Initialize elbo to NA.
   elbo = rep(as.numeric(NA),max_iter + 1)
   elbo[1] = -Inf;
-  tracking = list()
+
   # Initialize log-likelihood into NA
   loglik = rep(as.numeric(NA),max_iter+1)  ## not required to know...
   loglik[1] = -Inf
+
+  # (Expected) weighted sum of squared residual
+  WRSS = rep(as.numeric(NA),max_iter+1)  ## not required to know...
+  WRSS[1] = -Inf
+
+  tracking = list()
 
   for (tt in 1:max_iter) {
 
     if (track_fit)
       tracking[[tt]] = clamp_slim(s)
 
-    s <- update_each_effect(X=X, y=y_, s=s, W=W,
-                            estimate_prior_variance = estimate_prior_variance,
-                            estimate_prior_method = estimate_prior_method,
-                            check_null_threshold = check_null_threshold,
-                            robust_method = robust_method,
-                            robust_estimator = robust_estimator)
+    # if !is.null(seed), update the random seed in every iteration.
+    if (!is.null(seed)) {seed <- seed + tt}
+
+    s <- update_each_effect(X = X, y = y, s = s, W = W,
+                          mle_estimator = mle_estimator,
+                          mle_variance_estimator = mle_variance_estimator,
+                          nboots = nboots,
+                          seed = seed,
+                          estimate_prior_variance = estimate_prior_variance,
+                          estimate_prior_method = estimate_prior_method,
+                          check_null_threshold = check_null_threshold,
+                          abnormal_proportion = abnormal_proportion,
+                          robust_method = robust_method,
+                          robust_estimator = robust_estimator)
 
     # Compute objective before updating residual variance because part
     # of the objective s$kl has already been computed under the
     # residual variance before the update.
-    elbo[tt+1] = get_elbo(X, y_, s, model=model)
-    loglik[tt+1] = model$loglik(X, y_, s)
+    # elbo[tt+1] = get_elbo(X, y, s, W)
+    elbo[tt+1]   = get_elbo(s)
+    WRSS[tt+1]   = mean(s$EWR2)
+    loglik[tt+1] = mean(s$Eloglik)
 
     if (verbose){
-      print(paste0("#iteration:", tt))
-      print(paste0("objective:", elbo[tt+1]))
+      print(paste("#iteration:", tt,
+                  "; objective:", round(elbo[tt+1], 2),
+                  "; expected WRSS:", round(WRSS[tt+1], 2),
+                  # "; loglik:", round(loglik[tt+1], 2),
+                  "; sum(alpha^2):", round(sum(s$alpha^2), 2)))
     }
 
-    # if (abs(elbo[tt+1] - elbo[tt]) < tol) {
-    if ((elbo[tt+1] - elbo[tt]) < tol) {
-      s$converged = TRUE
-      break
+    ## convergence condition
+    ## some outputs:
+    if (mle_variance_estimator == "bootstrap") {
+
+      ## If the approach selects nothing,
+      ## then the objective would be a constant after a few iterations.
+      if (abs(elbo[tt+1] - elbo[tt]) < tol) {
+        s$converged = TRUE
+        break
+      }
+
+      ## Otherwise, due to the randomness in bootstrapping,
+      ## the ELBO may not converge to a specific value; instead, it may
+      ## fluctuate around a certain range. Thus, we use the following
+      ## after a "burn-in" period, if the average of `converge_window`
+      ## successive ELBO converges, then break the loop.
+        if (tt > (burn_in + converge_window + 1)) {
+          if ( abs(mean(elbo[(tt - converge_window - 1) : (tt-1)]) -
+                   mean(elbo[(tt - converge_window) : (tt)]) ) < tol ) {
+              s$converged = TRUE
+              break
+          }
+        }
+    } else {
+      if (abs(elbo[tt+1] - elbo[tt]) < tol) {
+        s$converged = TRUE
+        break
+      }
     }
+
+
+
+
 
     if (estimate_residual_variance) {
-      s$sigma2 = pmax(residual_variance_lowerbound,
-                      estimate_residual_variance_fun(X,y_,s))
+      s$sigma2 <- pmax(residual_variance_lowerbound,
+                       estimate_residual_variance_fun(X,y,s))
+
       if (s$sigma2 > residual_variance_upperbound)
-        s$sigma2 = residual_variance_upperbound
+        s$sigma2 <- residual_variance_upperbound
     }
+    print(s$sigma2)
+
 
   }
 
@@ -364,6 +435,9 @@ clamp <- function (X, y,
   s$elbo = elbo
   loglik = loglik[2:(tt+1)]
   s$loglik = loglik
+  # Remove redundancies
+  s$Eloglik = NULL
+  s$EWR2 = NULL
 
   s$niter = tt
 
@@ -372,22 +446,31 @@ clamp <- function (X, y,
     s$converged = FALSE
   }
 
-  if (intercept) {  ################### How about the glm cases?
+
+  if (intercept) {
     # Estimate unshrunk intercept.
-    s$intercept = mean_y - sum(attr(X,"scaled:center") *
-                        (colSums(s$alpha * s$mu)/attr(X,"scaled:scale")))
-    s$fitted = s$Xr + mean_y
+    # Treat this as an ordinary linear regression model
+    # Here, the intercept and the estimated residual variance implicitly
+    # represents the effect of the confounding factor on y.
+    s$intercept <- mean_y -
+      sum( colMeans(X) * (colSums(s$alpha * s$mu) / colSds(X)) )
+    s$fitted <- s$Xr + mean_y
+    # s$intercept <- mean_y -
+    #   sum( attr(X,"scaled:center") *
+    #          (colSums(s$alpha * s$mu)/attr(X,"scaled:scale")) )
   } else {
-    s$intercept = 0
-    s$fitted = s$Xr
+    s$intercept <- 0
+    s$fitted <- s$Xr
   }
+
+
   s$fitted = drop(s$fitted)
   names(s$fitted) = `if`(is.null(names(y)),rownames(X),names(y))
 
   if (track_fit)
     s$trace = tracking
 
-  # SuSiE CS and PIP.
+  # Credible Sets and PIPs
   if (!is.null(coverage) && !is.null(min_abs_corr)) {
     s$sets = clamp_get_cs(s,coverage = coverage,X = X,
                                   min_abs_corr = min_abs_corr,
@@ -395,22 +478,18 @@ clamp <- function (X, y,
     s$pip = clamp_get_pip(s,prune_by_cs = FALSE,prior_tol = prior_tol)
   }
 
-  if (!is.null(colnames(X))) {
-    variable_names = colnames(X)
-    if (!is.null(null_weight)) {
-      variable_names[length(variable_names)] = "null"
-      names(s$pip) = variable_names[-p]
-    } else
-      names(s$pip)    = variable_names
-    colnames(s$alpha) = variable_names
-    colnames(s$mu)    = variable_names
-    colnames(s$mu2)   = variable_names
-    colnames(s$betahat) = variable_names
-    colnames(s$logBF_variable) = variable_names
-  }
+  # (Re)name the outputs
+  variable_names             <- colnames(X)
+  names(s$pip)               <- variable_names
+  colnames(s$alpha)          <- variable_names
+  colnames(s$mu)             <- variable_names
+  colnames(s$mu2)            <- variable_names
+  colnames(s$betahat)        <- variable_names
+  colnames(s$logBF_variable) <- variable_names
 
   # For prediction.
-  s$X_column_scale_factors = attr(X,"scaled:scale")
+  # s$X_column_scale_factors  <- attr(X,"scaled:scale")
+  # s$X_column_center_factors <- attr(X,"scaled:center")
 
   return(s)
 }

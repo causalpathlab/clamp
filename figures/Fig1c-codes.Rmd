@@ -1,0 +1,133 @@
+# Fig. 1c: Toy example: Y ~ Gaussian.
+
+```{r setup, include=F, message=F}
+devtools::load_all()
+library(matrixStats)
+```
+
+
+## Toy example 1: a synthetic dataset $(X, Y)$
+
+Suppose that $\mathbf{X} = (X_{.1}, \ldots, X_{.p})$ is an $n$ by $p$ data matrix, 
+where $n$ is the sample size and $p$ is the number of explanatory variables, 
+and the value of each entry $x_{ij} \in \{0, 1, 2\}$ for all $i=1, \ldots n, j=1, \ldots, p$. 
+
+Let $n = 800$ and $p=1000$. 
+
+We further assume that the $X_{.j}$ is generated from an ordered logistic 
+regression model given by 
+
+$$
+\log \frac{\operatorname{Pr}(X_{.j} \leq k|U)}
+          {1 - \operatorname{Pr}(X_{.j} \leq k|U)} 
+= \xi_{0k}^{[j]} - \xi_1^{[j]} U + \delta_j, \ k = 0, 1.
+$$
+
+where $(\xi_{00}^{[j]}, \xi_{01}^{[j]}, \xi_1^{[j]})$ are the coefficients 
+specific for the $j$-th variable, 
+and further notice that 
+$\operatorname{Pr}(X_{.j} = 2|U) = 1 - \operatorname{Pr}(X_{.j} = 0|U) - \operatorname{Pr}(X_{.j} = 1|U)$. 
+
+```{r}
+## generate data X
+
+set.seed(123456)
+nn <- 800
+pp <- 100
+
+U <- rnorm(nn)  # confounder
+
+# XI: coefficients of confounding effects (?)
+XI <- data.frame(xi00 = rnorm(pp, mean = -2, sd = 0.5),
+                 xi01 = rnorm(pp, mean = 2,  sd = 0.5),
+                 xi1  = rnorm(pp, mean = 2,  sd = 0.5))  
+
+# X: input data
+X <- matrix(NA, nrow = nn, ncol = pp)
+for (j in 1 : pp) {
+  ## let eta0 < 0 and eta1 > 0 such that p0 and p2 are both less than 0.5
+  eta0 <- XI[j,"xi00"] - XI[j,"xi1"] * U 
+  eta1 <- XI[j,"xi01"] - XI[j,"xi1"] * U   
+  probs <- data.frame(
+    p0 = ifelse( eta0>0, 1/(1+exp(-eta0)), exp(eta0)/(1+exp(eta0)) ),
+    p2 = ifelse( eta1>0, exp(-eta1)/(1 + exp(-eta1)),  1/(1+exp(eta1)) )
+    ) %>%
+    mutate(p1 = 1 - p2 - p0) %>%
+    dplyr::select(p0, p1, p2)
+  
+  Xorg <- t( apply(as.matrix(1:nrow(probs)), 1,
+                   function(r) rmultinom(1, 1, probs[r, ])) )
+  X[,j] <- ifelse(Xorg[,1] == 1, 0,
+                            ifelse(Xorg[,2] == 1, 1, 2)) # aggregate Xorg as X
+}
+# rm(eta0, eta1, probs, Xorg)
+
+# check the correlation of X
+cormat <- cor(X, method = "spearman")
+hist(cormat, xlab = "correlation", main = "Histogram of correlations")
+```
+
+The correlations between pairs of variables are moderate; 
+except for the diagonal elements 1, 
+the maximal value is `r unique(sort(cormat, decreasing=T))[2]`` and
+the minimal value is `r min(cormat)``. 
+
+```{r}
+## generate continuous response Y
+n_causal_vars <- 5
+causal_vars <- sample.int(pp, size = n_causal_vars)
+coefs <- rnorm(n_causal_vars + 1)
+print(data.frame(vars = c(paste0("X", causal_vars), "U"), coefs))
+
+h2 <- 1
+eps <- rnorm(nn)
+Y <- sqrt(h2) * (cbind(X[,causal_vars, drop=F], U) %*% as.matrix(coefs)) + sqrt(1-h2) * eps
+```
+
+
+
+```{r}
+library(MASS)
+
+## Step 1: estimate the propensity scores with the proportional odds model
+# PS <- ls()
+PS <- matrix(nrow = nn, ncol = pp)
+for (j in 1 : pp) {
+  ps_model <- polr(as.factor(X[,j]) ~ U, method = "logistic")
+  pred_ps <- predict(ps_model, type = "probs")  ## a (n by 3) matrix
+  PS[,j] <- ifelse(X[,j] == 0, pred_ps[, 1], 
+                   ifelse(X[,j] == 1, pred_ps[, 2], pred_ps[, 3]))
+}
+
+## Step 1.2 construct the weight matrix
+Wmat <- 1 / PS
+
+# rm(ps_model, pred_ps, PS)
+```
+
+```{r}
+## Step 2: Fit a clamp model 
+res_cl <- clamp(X=X, y=Y, W=Wmat, family = "linear", 
+                standardize=T,
+                robust_method = "huber"
+                )
+# plot(res_cl$elbo[400:500])
+plot(res_cl$elbo, type = "b")
+summarize_coefficients(res_cl)
+
+clamp_plot(res_cl, y = "PIP", effect_indices = causal_vars)
+# res_cl$sigma2
+res_cl$prior_varB
+```
+
+There must be something wrong with the code...
+
+for comparison:
+
+```{r}
+print(data.frame(vars = c(paste0("X", causal_vars), "U"), coefs))
+```
+
+
+
+

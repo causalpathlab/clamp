@@ -1,0 +1,229 @@
+---
+title: "Variance of estimated ATE from IPW estimator"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{variance-of-estimated-ATE}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+bibliography: references.bib
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+# library(clamp)
+devtools::load_all(".")
+library(matrixStats)
+```
+
+## Preface
+
+As "consulting" with perplexity, here are some useful information on the variance of IPW estimator and the corresponding estimated ATE.
+
+### Challenges of estimating the variance of IPW estimator
+
+The variance of the inverse probability weighting (IPW) estimator requires to deal with the following two key challenges:
+
+1.  Induced correlation: the correlations among weighted observations created by IPW needs to be accounted for in variance estimation [@shu2021].
+
+2.  Weight estimation uncertainty: the estimated weights themselves include uncertainty, which should also be incorporated in to the variance estimation [@shu2021][@kostouraki2024]. 
+
+### Common variance estimators
+
+The recommended variance estimator for IPW models is the **robust sandwich variance estimator**. It accounts for the induced correlation among weighted observations. However, this estimator tends to overestimate the variance, leading to inefficient inference [@shu2021]. 
+Besides, [@kostouraki2024] mentioned that the sandwich variance estimator does not account for the propensity score estimation. 
+
+Another one is the **naive likelihood-based variance estimator** (the one currently used in our clamp package). It treats the estimated weights as constant, however, it may underestimate the variance because it does not account for weight estimation uncertainty [@shu2021]. 
+
+### Improved variance estimation methods
+
+One option is the **corrected sandwich variance estimator**, where [@shu2021] proposed a new variance estimator for Cox models. 
+
+Another option is the **linearization approach**. It accounts for the uncertainty in both the propensity score estimation and effect estimation steps. It can be applied to various types of propensity score weights (ATE, ATT, matching, and overlap weights). [@kostouraki2024]
+
+## (Uncorrected) robust (sandwich) variance estimator
+
+Here is the example of the robust sandwich variance estimator for linear regression. [From here](https://thestatsgeek.com/2013/10/12/the-robust-sandwich-variance-estimator-for-linear-regression/) [and here](https://thestatsgeek.com/2014/02/14/the-robust-sandwich-variance-estimator-for-linear-regression-using-r/)
+
+Assume that in an *(ordinary) linear regression* model the expectation is $\mathbb{E}[Y|X] = X^\top \beta$.
+
+Using estimating equation theory, we showed that the estimator has variance
+
+$$
+n^{-1} A(\beta^*)^{-1}B(\beta^*) (A(\beta^*)^{-1})^{T},
+$$
+
+where $A(\beta)$ denotes the matrix is equal to minus the derivative of the estimating function with respect to the parameter $\beta$, $B(\beta)$ denotes the variance covariance matrix of the estimating function, and $\beta^*$ denotes the true value of $\beta$.
+
+Then, we found that
+
+$$
+A(\beta) = \mathbb{E}\left[ - \frac{\partial}{\partial \beta} X(Y - X^\top \beta)\right] = \mathbb{E}[X X^\top]
+$$
+
+and that this could be estimated by
+
+$$
+\hat{\mathbb{E}}[X X^\top] = n^{-1} \sum_{i=1}^n X_i X_i^\top.
+$$
+
+The matrix $B(\beta)$ was given as the variance of the estimating function
+
+$$
+B(\beta) = \operatorname{Var}(X(Y - X^\top \beta)) = \mathbb{E}[\operatorname{Var}(\epsilon|X) X X^\top]. 
+$$
+
+In the previous post, we then derived an expression for this assuming that the residuals $\epsilon = Y - X^\top \beta$ have constant variance. Here we will relax that assumption, such as $\epsilon$ may have a variance that varies with $X$. By assuming the residuals have mean zero conditional on $X$, if subject $i$ has predictor values $X_i$, remembering that the variance is the average squared deviation around the mean, we can estimate $Var(\epsilon_i|X_i)$ by the square of the estimated residual $\hat{\epsilon}_i = Y_i - X_i^\top \hat{\beta}$, i.e.,
+
+$$
+\hat{\operatorname{Var}}(\epsilon_i|X_i) = (Y_i - X_i^\top \hat{\beta})^2.
+$$
+
+The matrix $B(\beta)$ can be then estimated by:
+
+$$
+\hat{B}(\hat{\beta}) = \sum_{i=1}^n X_i X_i^\top \hat{\operatorname{Var}}(\epsilon_i|X_i)
+$$
+
+(Well I have tried some experiments) it shows that the robust sandwich variance estimate is not always larger than the naive variance estimate. [Here](https://stats.stackexchange.com/questions/589113/can-robust-standard-errors-be-less-than-those-from-normal-ols) also gives a bit of explanations.
+
+We can try to apply this in linear regression model, 
+but it is important that the the data $(\mathbf{X}, \mathbf{y})$ needs to be 
+**centralized**,
+otherwise the estimates of coefficients are likely to be biased,
+and the corresponding variance are likely to shrink...
+
+### Comparing the naive and the (uncorrected) robust sandwich variance estimator
+
+Here is a simple example. 
+
+```{r}
+set.seed(20241108)
+nn <- 500
+pp <- 100
+U <- rnorm(nn, mean =1)
+# zeta <- c(rnorm(pp/2, mean = -0.5, sd = 1),
+#           rnorm(pp/2, mean = 0.8, sd = 1))
+zeta <- ((1:pp) -(pp/2)) / (pp+2)
+delta <- matrix(rnorm(nn*pp, 0, 0.1), nrow=nn)
+UU <- (outer(U, zeta) + 0.5*delta)[, , drop=F]
+
+Pmat <- expit(UU)  # Prob matrix
+corPmat <- cor(Pmat)
+diag(corPmat) <- 0
+hist(corPmat, breaks = seq(-1, 1, by = 0.1))
+hist(Pmat)
+# corrplot(cor(Pmat), type = "upper")
+
+X <- sapply(1:pp, function(j) {rbinom(nn, 1, Pmat[,j])})
+X <- apply(X, 2, as.double)
+esp <- rnorm(nn)
+
+causal_vars <- sample.int(pp, size = 3)
+# coefs <- rep(1, times = length(causal_vars) + 1)
+coefs <- rnorm(length(causal_vars) + 1)
+y <- cbind(X[, causal_vars, drop=F], U) %*% as.matrix(coefs) + esp
+
+print(data.frame(variable = c(paste0("X", causal_vars), "U"), 
+                 effect_size = coefs))
+
+### Step 1: estimate the propensity scores and construct the weight matrix
+PS <- apply(X, 2, function(xcol) 
+              predict(glm(xcol ~ U, family = binomial), type = "response"))
+Wmat <- ifelse(X == 1, 1/PS, 1/(1-PS))
+range(Wmat)
+```
+
+#### Using the naive variance estimator: 
+
+```{r}
+tic <- Sys.time()
+res_nv <- clamp(X, y, W=Wmat, family = "linear", 
+                mle_variance_estimator = "naive",
+                # max_iter = 3, 
+                standardize = F,
+                # estimate_prior_variance = F, 
+                estimate_residual_variance = F,
+                verbose=T)
+toc <- Sys.time()
+toc - tic
+summarize_coefficients(res_nv)
+clamp_plot(res_nv, y = "PIP", effect_indices = causal_vars)
+```
+
+#### Using the uncorrected robust sandwich estimator: 
+
+Here we apply the `vcovHC()` function in the R package `sandwich` [@sandwichR], 
+which computes the heteroskedasticity consistent (HC) variance-covariance 
+estimator for linear regression models. 
+We set `vcovHC(model, type="HC0")`, which computes the HC0 estimator 
+introduced by [@white1980heteroskedasticity]. 
+
+> The option `mle_variance_estimator="sandwich"` requires to fit a simple regression model
+for each explanatory variable, and then plug the fitted model into `vcovHC()` function, 
+which increases the computational time (a lot).
+
+```{r}
+tic <- Sys.time()
+res_sw <- clamp(X, y, W=Wmat, family = "linear", 
+                mle_variance_estimator = "sandwich",
+                standardize = F,
+                # estimate_prior_variance = F, 
+                estimate_residual_variance = F,
+                verbose = T
+                )
+toc <- Sys.time()
+toc - tic
+summarize_coefficients(res_sw)
+clamp_plot(res_sw, y = "PIP", effect_indices = causal_vars)
+```
+
+If only considering the variable selection result, 
+the robust sandwich estimator seems better. 
+
+
+## Bootstrap variance estimator
+
+It is possible that this approach will not let the algorithm converge; 
+instead, some estimates, and thus the ELBO, may oscillate periodically(?).
+
+```{r}
+tic <- Sys.time()
+res_bs <- clamp(X, y, W=Wmat, family = "linear", 
+                mle_variance_estimator = "bootstrap",
+                standardize = F,
+                # estimate_prior_variance = F, 
+                estimate_residual_variance = F,
+                max_iter = 50,
+                seed = 12345,
+                nboots = 100,
+                verbose=T
+                )
+toc <- Sys.time()
+toc - tic
+summarize_coefficients(res_bs)
+clamp_plot(res_bs, y = "PIP", effect_indices = causal_vars)
+```
+
+### Compare with `susieR::susie()`
+
+```{r}
+res_su <- susieR::susie(X, y)
+summarize_coefficients(res_su)
+# clamp_plot(res_su, y = "PIP", effect_indices = causal_vars)
+susieR::susie_plot(res_su, y = "PIP", b = (1:10 %in% causal_vars))
+```
+
+
+
+
+## Linearization estimator
+
+[@kostouraki2024]
+
+(This is somehow a bit complicated...)

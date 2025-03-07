@@ -39,17 +39,36 @@ clamp_init_coef = function (coef_index, coef_value, p) {
 # Set default clamp initialization.
 init_setup <- function (n, p, maxL, family,
                         scaled_prior_variance, residual_variance,
-                        prior_inclusion_prob, null_weight, varY, standardize) {
+                        prior_inclusion_prob, varY, standardize) {
   if (!is.numeric(scaled_prior_variance) || scaled_prior_variance < 0)
     stop("Scaled prior variance should be positive number")
+
   if (scaled_prior_variance > 1 && standardize)
     stop("Scaled prior variance should be no greater than 1 when ",
          "standardize = TRUE")
-  if(is.null(residual_variance))
-    residual_variance = varY
+
+  if(is.null(residual_variance)) {
+
+    if (family == "linear") {
+      ## for linear models,
+      ## 1. initialize residual_variance as varY
+      residual_variance = varY
+      ## 2. initialize prior_varB as follows...
+      prior_varB = scaled_prior_variance * varY
+    } else {
+      ## for logistic and poisson regression models
+      ## for generalized linear models,
+      ## 1. initialize residual_variance as 1
+      residual_variance = 1
+      ## 2. initialize prior_varB as 1
+      prior_varB = 1
+    }
+
+  }
+
   if(is.null(prior_inclusion_prob)){
     prior_inclusion_prob = rep(1/p,p)
-  }else{
+  } else {
     if(all(prior_inclusion_prob == 0)){
       stop("Prior weight should greater than 0 for at least one variable.")
     }
@@ -57,25 +76,27 @@ init_setup <- function (n, p, maxL, family,
   }
   if(length(prior_inclusion_prob) != p)
     stop("Prior weights must have length p")
-  if (p < maxL)
-    maxL = p
+  if (p < maxL) maxL = p
+
   s = list(family = family,
            alpha  = matrix(1/p,nrow = maxL,ncol = p),
            mu     = matrix(0,nrow = maxL,ncol = p),
            mu2    = matrix(0,nrow = maxL,ncol = p),
            betahat = matrix(0, nrow = maxL, ncol = p),  ## MLE
+           shat2 = matrix(0, nrow = maxL, ncol = p), ## shat2 of MLE
            Xr     = rep(0,n),
-           # KL     = rep(as.numeric(NA),L),
+           # KL     = rep(as.numeric(NA),maxL),
+           EWR2 = rep(as.numeric(NA), maxL),
+           Eloglik = rep(as.numeric(NA), maxL),
            logBF  = rep(as.numeric(NA),maxL),
            logBF_variable = matrix(as.numeric(NA),maxL,p),
            sigma2 = residual_variance,           ## residual variance
-           prior_varB = scaled_prior_variance*varY,  ## prior variance of coefficients b
+           prior_varB = prior_varB,         ## prior variance of coefficients b
            pie    = prior_inclusion_prob)
-  if (is.null(null_weight))
-    s$null_index = 0
-  else
-    s$null_index = p
-  class(s) = "clamp"
+
+  if (family == "linear") class(s) = "clamp"
+  else class(s) = "gsusie"
+
   return(s)
 }
 

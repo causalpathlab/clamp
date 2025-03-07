@@ -1,0 +1,282 @@
+---
+title: "Model binary responses via a logistic regression based CLAMP model"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{clamp-logistic}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 5, fig.height = 4, fig.align = "center", fig.cap = "&nbsp;", 
+  dpi = 120
+)
+```
+
+```{r setup, message = FALSE}
+# library(clamp)
+devtools::load_all(".")
+library(matrixStats)
+# library(corrplot)
+```
+
+> This document is copied from `gsusie`. 
+
+In this vignette, we show how to apply the `clamp()` function on a logistic
+regression based clamp model dedicated to modelling binary responses.
+
+## Get genotype data and generate binary response
+
+We simulate response using genotype data from an R package named
+[bigsnpr](https://github.com/privefl/bigsnpr/). 
+The explanatory variables `X` in this example, 
+saved in `./data/genotype/genotype-subset-1.rds`, 
+is a subset of genotype data containing 2000 successive SNPs of 500 individuals. 
+The data are extracted using the following code: 
+
+```{r, eval = F}
+# install.packages("bigsnpr")
+library(bigsnpr)
+
+`%&%` <- function(a,b) paste0(a,b)
+data.dir <- "../data/genotype/"
+dir.create(data.dir, recursive=TRUE, showWarnings=FALSE)
+
+.bed.file <- data.dir %&% "1000G_phase3_common_norel.bed"
+if (!file.exists(.bed.file)) {
+  bigsnpr::download_1000G(data.dir)
+}
+
+.bk.file <- data.dir %&% "1000G_phase3_common_norel.rds"
+if (!file.exists(.bk.file)){
+  BED <- snp_readBed(.bed.file)
+}
+dat <- snp_attach(.bk.file)$genotypes
+
+nn <- 500
+pp <- 2000
+
+set.seed(12345)
+startpoint <- sample(1 : (ncol(dat)-pp), size = 1)
+if (nn < 2490) {ii.idx <- sample(1 : 2490, size = nn)}
+X <- dat[ii.idx, startpoint : (startpoint+pp-1)]
+
+example.data.dir <- "./example-data/"
+saveRDS(X, file = example.data.dir %&% "genotype-subset-1.rds")
+```
+
+
+We set three variables, `X83`, `X1133`, and `X1406`, as 
+the effect variables, each having a non-zero
+effect size of 1 (before scaling). 
+Then, we generate the linear predictor `eta`. 
+We scale the linear combination to avoid unexpected large or 
+small values in `eta`. 
+
+```{r}
+`%&%` <- function(a,b) paste0(a,b)
+example.data.dir <- "./example-data/"
+
+X <- readRDS(example.data.dir %&% "genotype-subset-1.rds")
+nn <- nrow(X)  # 500
+pp <- ncol(X)  # 2000
+
+n_effect_vars <- 3
+## effect variables with non-zero effects
+effect_idx <- c(83, 1133, 1406)
+
+## effect size (before scaling)
+effect_size <- rep(1, times = n_effect_vars)
+
+## linear predictor
+eta <- scale(X[,effect_idx, drop=F]) %*% as.matrix(effect_size)
+
+## response
+expit <- function(eta) {
+  ifelse(eta > 0, 1 / (1 + exp(-eta)), exp(eta) / (1 + exp(eta)))
+}
+
+set.seed(20240220)
+y <- rbinom(nn, 1, expit(eta))
+```
+
+## Fit a logistic regression based clamp model
+
+To specify fitting a **logistic regression based clamp model**, 
+use the argument `family = "logistic"`. Correspondingly, the
+`clamp()` function call is:
+
+```{r}
+res_cl <- clamp(X, y, family = "logistic", estimate_residual_variance = F)
+```
+
+```{r}
+summarize_coefficients(res_cl)
+```
+
+When fitting a GLM-based clamp model, we prefer introducing an intercept term. 
+By default, the `clamp()` function sets `intercept=TRUE` 
+such that an intercept is automatically fitted in the model. 
+
+
+By default, we assume there are no more than 10 effect variables
+and set `maxL = min(10, ncol(X))`. You may choose to specify another
+value to `maxL`.
+
+By setting `estimate_residual_variance=F`, we fix the `residual_variance=1`.
+Thus, the `clamp` fitted result is yielded from the "original" iterative 
+reweighted least squared (IRLS) algorithm: 
+
+$$
+\hat{b}_j := \frac{\sum_{i=1}^n w_{i} x_{ij} y_i}{\sum_{i=1}^n w_{i} x_{ij}^2},
+$$
+
+$$
+s^2_j := \frac{1}{\sum_{i=1}^n w_i x_{ij}^2},
+$$
+
+where, $w_{i}$ is the weight of the $i$th individual computed from IRLS, 
+and $\hat{b}_j$ and $s_j^2$ are the maximum likelihood estimate 
+and its variance of $b_j$ conditioning on $b_j \neq 0$, i.e., 
+the $j$-th variable is an effect variable. 
+
+## Check the variable selection results
+
+### Posterior inclusion probabilities
+
+The `summarize_coefficients()` function offers 10 (by default) variables
+with the highest posterior inclusion probabilities (PIPs). By default,
+we output the 95% credible intervals of the posterior estimation of the coefficients. 
+
+```{r}
+summarize_coefficients(res_cl)
+```
+
+### Credible sets (CS)
+
+As with the SuSiE method, we output 95% credible sets by default.
+
+```{r}
+print(res_cl$sets)
+```
+
+The three relevant signals have been captured by the 3 credible sets
+here. Effect variables `X83` and `X1406` are detected, 
+each discovered along with another highly-correlated null variable. 
+
+### Graphical display of PIPs and credible sets
+
+The `clamp_plot()` function provides plots for the PIP of each variable.
+
+By default, since the intercept is just an auxiliary variable, we do not
+include it in the plot. In this case, the argument `intercept_index` needs
+to be specified. (P.S. By default, we set `include_intercept = FALSE` to
+remove the intercept term on the plot.)
+
+```{r}
+clamp_plot(res_cl, y = "PIP", effect_indices = effect_idx)
+```
+
+By specifying `effect_indices`, the true effect variables are
+colored in red. The 95% credible sets are identified as circled in
+different colors. 
+
+The plot shows that all three effect variables are discovered with high PIPs. 
+Meanwhile, a null variable is also included in a credible set. 
+
+### What if we let `estimate_residual_variance=T`? 
+
+By setting `estimate_residual_variance=T`, 
+we force the `residual_variance` to be estimated by 
+
+$$
+\hat{\sigma}^2 := \frac{\text{ERSS}(z, \bar{\mu}, \bar{\mu^2})}{n},
+$$
+
+where $z$ is the pseudo-response and the expected residual sum of squares (ERSS) 
+under the variational approximation $q$ is 
+
+$$
+\text{ERSS}(z, \bar{\mu}, \bar{\mu^2}) 
+= \mathbb{E}_q \left[ \bigg\| z - \sum_{l=1}^L \mu_l \bigg\|^2 \right]
+= \bigg\| z - \sum_{l=1}^L \bar{\mu}_l \bigg\|^2 + \sum_{l=1}^L \sum_{i=1}^n \operatorname{Var}[\mu_{li}],
+$$
+
+where $\operatorname{Var}[\mu_{li}] = \bar{\mu^2_{li}} - \bar{\mu}^2_{li}$.
+
+In this case, the variance of the MLE,
+
+$$
+\hat{b}_j := \frac{\sum_{i=1}^n w_{i} x_{ij} y_i}{\sum_{i=1}^n w_{i} x_{ij}^2},
+$$
+
+becomes
+
+$$
+s^2_j := \frac{\hat{\sigma}^2}{\sum_{i=1}^n w_i x_{ij}^2};
+$$
+
+that is, the variance may be either explode or shrink. 
+
+In other words, the model tolerates external variability (?) to some extent. 
+
+```{r}
+res_cl2 <- clamp(X, y, family = "logistic", estimate_residual_variance = T)
+summarize_coefficients(res_cl2)
+```
+
+```{r}
+clamp_plot(res_cl2, y = "PIP", effect_indices = effect_idx)
+```
+
+```{r}
+print(paste("estimated residual variance:", res_cl2$sigma2))
+```
+
+
+See in this case, the estimated `residual_variance` is (much) bigger than 1, 
+and it affects the variational approximation of the regression coefficients, 
+resulting in no variables discovered. 
+
+Is such argument setting a good choice? 
+
+
+## Compare with `gsusie`
+
+```{r}
+res_gs <- gsusie::gsusie(cbind(X, 1), y, family = "binomial")
+```
+
+```{r}
+summarize_coefficients(res_gs)
+```
+
+The result is equivalent to
+`res_cl <- clamp(X, y, family = "logistic", estimate_residual_variance = F)`. 
+
+
+## No need to apply robust approaches
+
+As you may notice, the `clamp()` function provides an option for robust estimation. 
+Well... yes. The robust approaches in this package aim to down-weight the impact 
+of outliers, i.e., the extremely big response values, in the model fitting. 
+These approaches are effective in fitting a Poisson regression based 
+clamp model. 
+However, they do not demonstrate a comparable advantage over a logistic 
+regression based clamp model; 
+what's worse, those robust approaches could be harmful. 
+That is because, unlike the count data in which some big numbers may occur,
+the distribution of a binary response does not spread out; 
+the value of a binary response is just one or zero. 
+As a result, robust estimation is unnecessary in this case. 
+
+
+
+
+
+
+
+

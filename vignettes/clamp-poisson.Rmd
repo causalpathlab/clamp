@@ -1,0 +1,343 @@
+---
+title: "Model a count-type response using a Poisson regression based CLAMP model"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{clamp-poisson}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>",
+  fig.width = 5, fig.height = 4, fig.align = "center", fig.cap = "&nbsp;", 
+  dpi = 120
+)
+```
+
+```{r setup, message=FALSE}
+# library(clamp)
+devtools::load_all(".")
+library(matrixStats)
+```
+
+In this vignette, we show how to apply the `clamp()` function on a Poisson
+regression based Clamp model dedicated to handling count-type responses.
+
+## Get genotype data and generate count-type responses
+
+We simulate response using genotype data from an R package named
+[bigsnpr](https://github.com/privefl/bigsnpr/).
+The explanatory variables `X` in this example, 
+saved in `./data/genotype/genotype-subset-2.rds`, 
+is a subset of genotype data containing 2000 successive SNPs of 500 individuals. 
+The data are extracted using the following code: 
+
+```{r, eval = F}
+# install.packages("bigsnpr")
+library(bigsnpr)
+
+`%&%` <- function(a,b) paste0(a,b)
+data.dir <- "../data/genotype"
+dir.create(data.dir, recursive=TRUE, showWarnings=FALSE)
+
+.bed.file <- data.dir %&% "1000G_phase3_common_norel.bed"
+if (!file.exists(.bed.file)) {
+  bigsnpr::download_1000G(data.dir)
+}
+
+.bk.file <- data.dir %&% "1000G_phase3_common_norel.rds"
+if (!file.exists(.bk.file)){
+  BED <- snp_readBed(.bed.file)
+}
+dat <- snp_attach(.bk.file)$genotypes
+
+nn <- 500
+pp <- 2000
+
+set.seed(123456789)
+startpoint <- sample(1 : (ncol(dat)-pp), size = 1)
+if (nn < 2490) {ii.idx <- sample(1 : 2490, size = nn)}
+X <- dat[ii.idx, startpoint : (startpoint+pp-1)]
+
+example.data.dir <- "./example-data/"
+saveRDS(X, file = example.data.dir %&% "genotype-subset-2.rds")
+```
+
+Three effect variables are randomly selected, each having a non-zero
+effect size of 1 (before scaling). 
+Then, we generate the linear predictor `eta`. 
+We scale the linear combination to avoid unexpected large or small values in `eta`.
+
+```{r}
+`%&%` <- function(a,b) paste0(a,b)
+example.data.dir <- "./example-data/"
+
+X <- readRDS(example.data.dir %&% "genotype-subset-2.rds")
+nn <- nrow(X)  # 500
+pp <- ncol(X)  # 2000
+
+n_effect_vars <- 3
+
+set.seed(12345)
+
+## independent variables with non-zero effects
+effect_idx <- sample(1:pp, size = n_effect_vars)
+print(effect_idx)
+
+## effect size
+effect_size <- rep(1, times = n_effect_vars)
+
+## linear predictor
+eta <- scale(X[,effect_idx, drop=F] %*% as.matrix(effect_size))
+
+## response
+y <- rpois(nn, exp(eta))
+```
+
+The histogram of the synthetic response is:
+
+```{r}
+hist(y, breaks = 12)
+```
+
+## Fit a Poisson regression based clamp model
+
+To specify fitting a **Poisson regression based clamp model**, 
+use the argument `family = "poisson"`. Correspondingly, the
+`clamp()` function call is:
+
+```{r}
+res_cl <- clamp(X, y, family = "poisson", estimate_residual_variance = F)
+```
+
+When fitting a GLM-based clamp model, we prefer introducing an intercept term. 
+By default, the `clamp()` function sets `intercept=TRUE` 
+such that an intercept is automatically fitted in the model. 
+
+By default, we assume there are no more than 10 effect variables
+and set `maxL = min(10, ncol(X))`. You may choose to specify another
+value to `maxL`.
+
+By setting `estimate_residual_variance=F`, we fix the `residual_variance=1`.
+Thus, the `clamp` fitted result is yielded from the "original" iterative 
+reweighted least squared (IRLS) algorithm: 
+
+$$
+\hat{b}_j := \frac{\sum_{i=1}^n w_{i} x_{ij} y_i}{\sum_{i=1}^n w_{i} x_{ij}^2},
+$$
+
+$$
+s^2_j := \frac{1}{\sum_{i=1}^n w_i x_{ij}^2},
+$$
+
+where, $w_{i}$ is the weight of the $i$th individual computed from IRLS, 
+and $\hat{b}_j$ and $s_j^2$ are the maximum likelihood estimate 
+and its variance of $b_j$ conditioning on $b_j \neq 0$, i.e., 
+the $j$-th variable is an effect variable. 
+
+## Check the variable selection results
+
+### Posterior inclusion probabilities
+
+The `summarize_coefficients()` function offers 10 (by default)
+variables with the highest posterior inclusion probabilities (PIPs). By
+default, we output 95% credible intervals for the posterior means of each
+variable.
+
+```{r}
+summarize_coefficients(res_cl)
+```
+
+True effect variables (`X51`, `X142`, and `X720`) are detected with high PIPs. 
+
+
+
+### Credible sets (CS)
+
+As with the SuSiE method, we output 95% credible sets by default.
+
+```{r}
+summary(res_cl)
+```
+
+Each credible set contain one variable.
+
+### Graphical Display
+
+The `clamp_plot()` function provides plots for PIP of each variable.
+
+By default, since the intercept is just an auxiliary variable, we do not
+include it in the plot. In this case, argument `intercept_index` needs
+to be specified. (P.S. By default, we set `include_intercept = FALSE` to
+remove the intercept term on the plot.)
+
+```{r}
+clamp_plot(res_cl, y = "PIP", effect_indices = effect_idx)
+```
+
+By specifying `effect_indices`, the true effect variables are
+colored in red. The 95% credible sets are identified as circled in
+different colors.
+
+## What if we let `estimate_residual_variance=T`? 
+
+```{r}
+res_cl2 <- clamp(X, y, family = "poisson", estimate_residual_variance = T)
+```
+
+Show the outputs: 
+
+```{r}
+summarize_coefficients(res_cl2)
+clamp_plot(res_cl2, y = "PIP", effect_indices = effect_idx)
+```
+
+```{r}
+print(paste("estimated residual variance:", res_cl2$sigma2))
+```
+
+In this case, the estimated residual variance is relatively close to one. 
+Besides, the fitted result `res_cl2` is comparable with `res_cl`; 
+nevertheless, the posterior SDs of the nonzero coefficients is larger 
+in `res_cl2` than in `res_cl`. 
+
+However, if we review *clamp-logistic.Rmd* (a hyper-link?), 
+it is not certain whether setting `estimate_residual_variance=T` is always
+a good choice. 
+
+
+## Refine a Poisson regression based clamp model via robust estimation
+
+As we know, count data (in the response) usually contains extremely
+large values. These unexpected values may affect the model fitting,
+resulting in false discoveries or even failure to fit the model.
+
+Hence, we suggest robust estimation when modelling a Poisson
+regression based clamp model. Our `clamp` function provides several
+robust estimation approaches. Based on our experience in simulation
+experiments, we recommend the **Huber reweighting method**, which, in each
+iteration, reweights each data point by Huber weight[@huber1964]
+according to its residual updated from the previous iteration [(by
+M-estimation)]{style="color: gray;"}.
+
+The corresponding function call is:
+
+```{r}
+res_cl_hb <- clamp(X, y, family = "poisson", estimate_residual_variance = F,
+                   robust_method = "huber")
+```
+
+### Check the refined variable selection results
+
+The fitted results as well as graphical display are:
+
+```{r}
+summarize_coefficients(res_cl_hb)
+```
+
+```{r}
+summary(res_cl_hb)
+```
+
+
+```{r}
+clamp_plot(res_cl_hb, y = "PIP", effect_indices = effect_idx)
+```
+
+By applying the robust Huber reweighting method, 
+the null variable `X54` is detected along with the true effect variable `X51`, 
+but the PIP of the former is relatively lower than that of the latter. 
+The 95% credible interval of the posterior mean of `X54` contains, 
+indicating that `X54` might not be a significant effect variable; 
+it pops-up probabily because it is highly correlated with `X51`.
+Besides, as suggested above, 
+`X51` is captured by two different credible sets, 
+one of which contains only `X51`. 
+This may indicate that `X51` is likely to be more important than `X54`. 
+
+
+Other than performing Huber reweighting via M-estimation procedures, we
+also provide an option of Huber reweighting via
+S-estimation[@rousseeuw1984]. The corresponding function call is:
+
+```{r}
+res_cl_hb2 <- clamp(X, y, family = "poisson", estimate_residual_variance = F,
+                     robust_method = "huber", 
+                     robust_estimator = "S")
+```
+
+The fitted results as well as graphical display are:
+
+```{r}
+summarize_coefficients(res_cl_hb2)
+```
+
+```{r}
+summary(res_cl_hb2)
+```
+
+
+```{r}
+clamp_plot(res_cl_hb2, y = "PIP", effect_indices = effect_idx)
+```
+
+In simulation experiments, 
+this selection result is comparable with the result applying the 
+Huber M-estimator. 
+
+
+## Suggestions for preprocessing count-type responses
+
+Two cases in the count data response that may result in
+difficulty fitting a Poisson regression based clamp model. One is
+the presence of too many zeros, and the other is the existence of
+some unexpectedly large values. The former can be addressed by fitting a
+zero-inflated Poisson or a negative binomial regression model;
+however, the clamp versions of these two genearlized linear models have not 
+yet been developed in our `clamp` package. 
+The latter may lead to unexpected failure of fitting a clamp model, 
+as those extreme values may lead to overflow in certain fitting procedure. 
+
+A simple approach to simultaneously address both problems is to preprocess the response: 
+we scale the response without changing the shape of its original distribution. 
+Specifically, the following transformation is operated  
+
+```{r, eval = F}
+y <- exp(log1p(y))
+```
+
+and then the new $y$ is plugged into the `clamp` function to fit a clamp model. 
+This transformation on $y$ is particularly beneficial in reducing the chance of 
+failure in model fitting. 
+
+
+
+
+
+## Example 0: Synthetic data
+
+```{r}
+set.seed(123)
+nn <- 1000
+pp <- 50
+
+n_effect_vars <- 3
+effect_idx <- sample.int(pp, size = n_effect_vars)
+# coefs <- rnorm(n_effect_vars)
+coefs <- rep(0.5, times = n_effect_vars)
+print(data.frame(effect_vars = effect_idx, effect_size = coefs))
+
+X <- matrix(rnorm(nn*pp), nrow = nn)
+
+Eta <- X[, effect_idx, drop=F] %*% as.matrix(coefs)
+
+Y <- rpois(nn, exp(Eta))
+hist(Y)
+
+res_cl <- clamp(X, Y, family = "poisson",
+                standardize = F)
+summarize_coefficients(res_cl)
+```
+
