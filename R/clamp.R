@@ -380,7 +380,8 @@ clamp <- function (X, y,
       print(paste("#iteration:", tt,
                   "; objective:", round(elbo[tt+1], 2),
                   "; expected WRSS:", round(WRSS[tt+1], 2),
-                  "; loglik:", round(loglik[tt+1], 2)))
+                  # "; loglik:", round(loglik[tt+1], 2),
+                  "; sum(alpha^2):", round(sum(s$alpha^2), 2)))
     }
 
     ## convergence condition
@@ -424,6 +425,7 @@ clamp <- function (X, y,
       if (s$sigma2 > residual_variance_upperbound)
         s$sigma2 <- residual_variance_upperbound
     }
+    print(s$sigma2)
 
 
   }
