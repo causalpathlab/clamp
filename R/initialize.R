@@ -49,30 +49,21 @@ init_setup <- function (n, p, maxL, family,
 
   if(is.null(residual_variance)) {
 
-    switch(family,
-           "linear" = {
-             ## for linear models,
-             ## 1. initialize residual_variance as varY
-             residual_variance = varY
-             ## 2. initialize prior_varB as follows...
-             prior_varB = scaled_prior_variance * varY
-           },
+    if (family == "linear") {
+      ## for linear models,
+      ## 1. initialize residual_variance as varY
+      residual_variance = varY
+      ## 2. initialize prior_varB as follows...
+      prior_varB = scaled_prior_variance * varY
+    } else {
+      ## for logistic and poisson regression models
+      ## for generalized linear models,
+      ## 1. initialize residual_variance as 1
+      residual_variance = 1
+      ## 2. initialize prior_varB as 1
+      prior_varB = 1
+    }
 
-           "logistic" = {
-             ## for generalized linear models,
-             ## 1. initialize residual_variance as 1
-             residual_variance = 1
-             ## 2. initialize prior_varB as 1
-             prior_varB = 1
-           },
-
-           "poisson" = {
-             ## for generalized linear models,
-             ## 1. initialize residual_variance as 1
-             residual_variance = 1
-             ## 2. initialize prior_varB as 1
-             prior_varB = 1
-           })
   }
 
   if(is.null(prior_inclusion_prob)){
@@ -102,7 +93,9 @@ init_setup <- function (n, p, maxL, family,
            sigma2 = residual_variance,           ## residual variance
            prior_varB = prior_varB,         ## prior variance of coefficients b
            pie    = prior_inclusion_prob)
-  class(s) = "clamp"
+
+  if (family == "linear") class(s) = "clamp"
+  else class(s) = "gsusie"
 
   return(s)
 }
