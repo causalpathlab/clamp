@@ -32,16 +32,22 @@ update_each_effect_glm <- function (X, y, s, model,
 
   # Iterative reweighted least-squared (IRLS) for generalized linear models
 
-  ## update the pseudo-response
-  psd_rsp <- model$pseudo_response(s$Xr, y)
+  ## linear predictor
+  Xr <- compute_Xb(X, colSums(s$alpha * s$mu))
+
   ## update the overall log-pseudo-variance
-  log_psd_var <- model$log_pseudo_var(s$Xr)
+  log_psd_var <- model$log_pseudo_var(Xr)
   ## a n-dim vector of weights yielded from IRLS
   irls_weight <- exp(-log_psd_var)
+
+  ## update the pseudo-response
+  psd_rsp <- model$pseudo_response(Xr, y)
   ## check if there are any abnormal points based on irls_weight
   s$abnormal_subjects <- check_abnormal_subjects(irls_weight)
   ## compute the residuals
-  current_R <- psd_rsp - s$Xr
+  current_R <- psd_rsp - Xr
+
+
 
 
   # Robust estimation regarding W/residuals.
@@ -80,9 +86,9 @@ update_each_effect_glm <- function (X, y, s, model,
       current_R_sub <- remove_abnormal_subjects(s$abnormal_subjects, current_R)
       WW_sub         <- remove_abnormal_subjects(s$abnormal_subjects, WW)
 
-      ## inherit the attributes of X_sub from X
-      attr(X_sub, "scaled:scale")  <- attr(X, "scaled:scale")
-      attr(X_sub, "scaled:center") <- attr(X, "scaled:center")
+      # ## inherit the attributes of X_sub from X
+      # attr(X_sub, "scaled:scale")  <- attr(X, "scaled:scale")
+      # attr(X_sub, "scaled:center") <- attr(X, "scaled:center")
     }
 
 
@@ -95,7 +101,7 @@ update_each_effect_glm <- function (X, y, s, model,
       ## fit the WSER
       res <- weighted_single_effect_regression(y=Rl, X=X_sub,
                                   W = WW_sub,
-                                  residual_variance = s$sigma2,
+                                  residual_variance = 1,
                                   prior_inclusion_prob = s$pie,
                                   prior_varB = s$prior_varB[l],
                                   optimize_prior_varB = estimate_prior_method,

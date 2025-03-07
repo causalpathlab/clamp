@@ -4,9 +4,6 @@
 #'
 #' @param y The observed responses, a vector of length n.
 #'
-#' @param W The weight matrix of size (n by p) or a n-dim vector.
-#'   By default, \code{W=NULL}.
-#'
 #' @param maxL Maximum number of non-zero effects in the susie
 #'   regression model. If L is larger than the number of covariates, p,
 #'   L is set to p.
@@ -24,12 +21,6 @@
 #'   value provided should be either a scalar or a vector of length
 #'   \code{L}. If \code{estimate_prior_variance = TRUE}, this provides
 #'   initial estimates of the prior variances.
-#'
-#' @param residual_variance Variance of the residual. If
-#'   \code{estimate_residual_variance = TRUE}, this value provides the
-#'   initial estimate of the residual variance. By default, it is set to
-#'   \code{var(y)} in \code{clamp} and \code{(1/(n-1))yty} in
-#'   \code{susie_suff_stat}.
 #'
 #' @param prior_inclusion_prob A vector of length p, in which each entry
 #'   gives the prior probability that corresponding column of X has a
@@ -85,10 +76,6 @@
 #'   and exclude a single effect from PIP computation if the estimated
 #'   prior variance is smaller than this tolerance value.
 #'
-#' @param residual_variance_upperbound Upper limit on the estimated
-#'   residual variance. It is only relevant when
-#'   \code{estimate_residual_variance = TRUE}.
-#'
 #' @param abnormal_proportion a value between 0 and 1. If the number of detected
 #'   abnormal subjects exceeds \eqn{abnormal_proportion * nrow(X)},
 #'
@@ -127,10 +114,6 @@
 #'   is also returned containing detailed information about the
 #'   estimates at each iteration of the IBSS fitting procedure.
 #'
-#' @param residual_variance_lowerbound Lower limit on the estimated
-#'   residual variance. It is only relevant when
-#'   \code{estimate_residual_variance = TRUE}.
-#'
 #' @param n_purity Passed as argument \code{n_purity} to
 #'   \code{\link{clamp_get_cs}}.
 #'
@@ -156,8 +139,6 @@
 #' \item{logBF_variable}{log-Bayes Factor for each variable and single effect.}
 #'
 #' \item{intercept}{Intercept (fixed or estimated).}
-#'
-#' \item{sigma2}{Residual variance (fixed or estimated).}
 #'
 #' \item{prior_varB}{Prior variance of the non-zero elements of b, equal to
 #'   \code{scaled_prior_variance * var(y)}.}
@@ -194,20 +175,16 @@
 #' @export
 #'
 gsusie <- function (X, y,
-                   # W = NULL, ## IPW matrix, should be of same size of X
                    maxL = min(10,ncol(X)),
                    family = c("logistic", "poisson"),
                    scaled_prior_variance = 0.2,
-                   residual_variance = NULL,
                    prior_inclusion_prob = NULL,
                    standardize = TRUE,
                    intercept = TRUE,
-                   # estimate_residual_variance = FALSE,
                    estimate_prior_variance = TRUE,
                    estimate_prior_method = c("optim", "EM", "simple"),
                    check_null_threshold = 0,
                    prior_tol = 1e-9,
-                   residual_variance_upperbound = Inf,
                    abnormal_proportion = 0.5,
                    robust_method = c("none", "huber"),
                    robust_estimator = c("M", "S"),
@@ -218,7 +195,6 @@ gsusie <- function (X, y,
                    tol = 1e-3,
                    verbose = FALSE,
                    track_fit = FALSE,
-                   residual_variance_lowerbound = var(drop(y))/1e4,
                    n_purity = 100) {
 
   # Process input estimate_prior_method.
@@ -279,6 +255,8 @@ gsusie <- function (X, y,
   # by attr(X,'scaled:center') and scaled by attr(X,'scaled:scale').
   # Requires the package `matrixStats`
 
+  # Since the weights (inverse of pseudo-variance) are iteratively updated,
+  # the column statistics should be computed within `update_each_effect_glm`.
   if (family %in% c("logistic", "poisson")) {
 
     # Since GLM applies iterative reweighted least-squares,
@@ -318,7 +296,7 @@ gsusie <- function (X, y,
   # Initialize clamp fit.
   s <- init_setup(n=n, p=p, maxL=maxL, family=family,
                   scaled_prior_variance=scaled_prior_variance,
-                  residual_variance=residual_variance,
+                  residual_variance=NULL,
                   prior_inclusion_prob=prior_inclusion_prob,
                   varY=as.numeric(var(y)),
                   standardize=standardize)
@@ -359,7 +337,6 @@ gsusie <- function (X, y,
     }
 
     if (abs(elbo[tt+1] - elbo[tt]) < tol) {
-      # if ((elbo[tt+1] - elbo[tt]) < tol) {
       s$converged = TRUE
       break
     }
@@ -388,6 +365,7 @@ gsusie <- function (X, y,
   } else {
     s$intercept <- 0
   }
+
   s$fitted <- model$inverse_link(s$Xr)
 
   s$fitted = drop(s$fitted)
@@ -414,8 +392,8 @@ gsusie <- function (X, y,
   colnames(s$logBF_variable) <- variable_names
 
   # For prediction.
-  s$X_column_scale_factors  <- attr(X,"scaled:scale")
-  s$X_column_center_factors <- attr(X,"scaled:center")
+  # s$X_column_scale_factors  <- attr(X,"scaled:scale")
+  # s$X_column_center_factors <- attr(X,"scaled:center")
 
   return(s)
 }

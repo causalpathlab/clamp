@@ -101,8 +101,8 @@ weighted_single_effect_regression <-
     wxy <- colSums(sweep(X_, 1, W * y_, "*"))
     wx2 <- colSums(sweep(X_^2, 1, W, "*"))
     betahat <- wxy / wx2
-    # shat2 <- residual_variance / wx2
-    shat2 <- 1/wx2
+    shat2 <- residual_variance / wx2
+    # shat2 <- 1/wx2
 
     # Check prior_inclusion_probability
     ## If `prior_inclusion_probability` is consistent to all variables,
@@ -167,8 +167,6 @@ weighted_single_effect_regression <-
                 logBF = logBF,      # layer-wise log of Bayes factor
                 logBF_model = logBF_model,  # log of Bayes factor of model
                 prior_varB = prior_varB,  # prior variance of coefficients B
-                # EWR2 = EWR2,        # expected weighted sum of squared residual
-                # Eloglik = Eloglik     # expected log-likelihood
     ))
   }
 
