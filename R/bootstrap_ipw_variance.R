@@ -56,5 +56,12 @@ bootstrap_ipw_variance <- function(X, y, W, mle_estimator = c("mHT", "WLS"),
   # Convert back to the original scale (if X is standardized)
   boot_betahat <- sweep(boot_betahat, 2, attr(X, "scaled:scale"), "/")
 
-  return( colVars(boot_betahat, na.rm = TRUE) )  ##
+  if ( any(is.nan(boot_betahat)) ) {
+    warning(
+      sprintf("Columns include NAN bootstrap estimates: %i. \
+      Variances are estimated after dropping NANs.",
+              which( is.na(colVars(boot_betahat))) ) )
+  }
+
+  return( colVars(boot_betahat, na.rm=TRUE) )
 }
