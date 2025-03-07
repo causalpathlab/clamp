@@ -75,15 +75,13 @@ summarize_coefficients <- function(object, subset_vars = NULL,
     out$CrI_upper <- out$PostMean - qnorm((1 - coverage)/2) * out$PostSD
   }
 
-  # rownames(out) <- var_names
 
-  out <- out[order(out$PIP, decreasing = decreasing), ]
+  out <- out[order(out$PIP, abs(out$PostMean), decreasing = decreasing), ]
   if (is.null(subset_vars)) {
     if (!is.null(digits)) {
       print.data.frame(cbind(variable = out[1:min(top_n, length(object$pip)), 1],
                              round(out[1:min(top_n, length(object$pip)),
-                                       2:ncol(out)],
-                                   digits)), row.names = F)
+                                       2:ncol(out)], digits)), row.names = F)
     } else {
       print.data.frame(out[1:min(top_n, length(object$pip)), ], row.names = F)
     }
@@ -92,8 +90,7 @@ summarize_coefficients <- function(object, subset_vars = NULL,
     if (!is.null(digits)) {
       print.data.frame(cbind(variable = out[out[, 1] %in% subset_vars, 1],
                              round(out[out[, 1] %in% subset_vars,
-                                       2:ncol(out)],
-                                   digits)), row.names = F)
+                                       2:ncol(out)], digits)), row.names = F)
     } else {
       print.data.frame(out[out[, 1] %in% subset_vars, ], row.names = F)
     }
