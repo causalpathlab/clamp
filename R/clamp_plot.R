@@ -90,6 +90,9 @@ clamp_plot <- function (model, y,
     "darkorange4", "brown"
   )
 
+  if (!is.numeric(effect_indices))
+    warning("`effect_indices` should be numeric indices.")
+
   if (y == "PIP"){
     if (is_clamp)
       yy <- model$pip
