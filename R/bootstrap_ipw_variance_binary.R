@@ -15,7 +15,7 @@
 #'
 #' @importFrom matrixStats colVars
 #' @keywords internal
-bootstrap_ipw_variance <- function(X, y, W, mle_estimator = c("mHT", "WLS"),
+bootstrap_ipw_variance_binary <- function(X, y, W, mle_estimator = c("mHT", "WLS"),
                                    nboots = 100, seed = NULL) {
 
   if (is.null(seed)) seed <- Sys.time()
@@ -48,7 +48,7 @@ bootstrap_ipw_variance <- function(X, y, W, mle_estimator = c("mHT", "WLS"),
     Wboot <- W[ind, , drop = F]
 
     boot_betahat[B,] <-
-      estimate_average_treatment_effect(X=Xboot, y=yboot, W=Wboot,
+      estimate_average_treatment_effect_binary(X=Xboot, y=yboot, W=Wboot,
                                         mle_estimator=mle_estimator,
                                         centralize = centralize,
                                         standardize = standardize)

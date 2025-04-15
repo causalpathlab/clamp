@@ -1,6 +1,6 @@
-#' @rdname ipw_single_effect_regresion
+#' @rdname ipw_single_effect_regresion_binary
 #'
-#' @title single effect regression through inverse probability weightings
+#' @title Single effect regression with inverse probability weighting estimates for binary treatments
 #'
 #' @description
 #' This function is to compute the posterior distribution of the regression
@@ -72,7 +72,7 @@
 #'
 #' @keywords internal
 #'
-ipw_single_effect_regression <-
+ipw_single_effect_regression_binary <-
   function(y, X,
            W = NULL,
            prior_varB,
@@ -99,10 +99,10 @@ ipw_single_effect_regression <-
 
     switch(mle_variance_estimator,
            "bootstrap" = {
-             betahat <- estimate_average_treatment_effect(X, y, W,
+             betahat <- estimate_average_treatment_effect_binary(X, y, W,
                                                   mle_estimator = mle_estimator)
              shat2 <-
-               bootstrap_ipw_variance(X = X, y = y, W = W,
+               bootstrap_ipw_variance_binary(X = X, y = y, W = W,
                                       mle_estimator = mle_estimator,
                                       nboots = nboots, seed = seed)
            },

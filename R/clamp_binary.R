@@ -1,4 +1,6 @@
-#' ...
+#' @title clamp (?) for binary treatments
+#'
+#' @rdname clamp_binary
 #'
 #' @param X An n by p matrix of covariates.
 #'
@@ -209,7 +211,7 @@
 #'
 #' @export
 #'
-clamp <- function (X, y,
+clamp_binary <- function (X, y,
                    W = NULL, ## IPW matrix, should be of same size of X
                    maxL = min(10,ncol(X)),
                    # family = "linear",

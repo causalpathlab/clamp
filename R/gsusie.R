@@ -318,7 +318,7 @@ gsusie <- function (X, y,
     if (track_fit)
       tracking[[tt]] = clamp_slim(s)
 
-    s <- update_each_effect_glm(X=X, y=y, s=s, model=model,
+    s <- gsusie_update_each_effect(X=X, y=y, s=s, model=model,
                             estimate_prior_variance = estimate_prior_variance,
                             estimate_prior_method = estimate_prior_method,
                             check_null_threshold = check_null_threshold,

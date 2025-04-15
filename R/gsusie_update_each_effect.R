@@ -1,4 +1,6 @@
 #' @title Update each effect once in a generalized linear model; each sub-model is a weighted SER.
+#'
+#' @rdname gsusie_update_each_effect
 #' @param X An (n by p) matrix of regressor variables
 #' @param y An n vector of response variable
 #' @param s A gsusie fit
@@ -17,7 +19,7 @@
 #'   \code{robust_estimator="M"} indicates the M-estimator is applied, and
 #'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
-update_each_effect_glm <- function (X, y, s, model,
+gsusie_update_each_effect <- function (X, y, s, model,
                                     estimate_prior_variance = FALSE,
                                     estimate_prior_method = "optim",
                                     check_null_threshold = 0,

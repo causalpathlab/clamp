@@ -23,7 +23,7 @@
 #' @importFrom stats weighted.mean
 #'
 #' @keywords internal
-estimate_average_treatment_effect <- function(X, y, W,
+estimate_average_treatment_effect_binary <- function(X, y, W,
                                               mle_estimator = c("mHT", "WLS"),
                                               standardize = NULL,
                                               centralize = NULL) {
