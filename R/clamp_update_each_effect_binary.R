@@ -133,7 +133,7 @@ clamp_update_each_effect_binary <- function (X, y, s, W=NULL,
 
 
       ## fit the ipw-ser
-      res <- ipw_single_effect_regression(y=Rl, X=X_sub,
+      res <- ipw_single_effect_regression_binary(y=Rl, X=X_sub,
                                 W = WW_sub,
                                 residual_variance = s$sigma2,
                                 prior_inclusion_prob = s$pie,

@@ -358,7 +358,7 @@ clamp_binary <- function (X, y,
     # if !is.null(seed), update the random seed in every iteration.
     if (!is.null(seed)) {seed <- seed + tt}
 
-    s <- update_each_effect(X = X, y = y, s = s, W = W,
+    s <- clamp_update_each_effect_binary(X = X, y = y, s = s, W = W,
                           mle_estimator = mle_estimator,
                           mle_variance_estimator = mle_variance_estimator,
                           nboots = nboots,
