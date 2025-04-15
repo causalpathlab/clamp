@@ -1,0 +1,125 @@
+---
+title: "Finding causal categorical variables using CLAMP"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{clamp-cat-exp-causal}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+devtools::load_all(".")
+# library(clamp)
+library(nnet)
+```
+
+
+## Toy example: Two exposures
+
+```{r}
+set.seed(123123)
+n <- 1000
+p <- 3
+K <- 3  ## 3-level categorical variable.
+
+# confounder
+U <- rnorm(n, mean = 0.5)
+
+# potential outcomes
+eps <- rnorm(n)
+
+# ============ f1 ============
+f1func <- function(.x, .u) return(.x + .u + .x*.u)
+## E[f1(0,U)] = 0.5; E[f1(1,U)] = 2; E[f1(2,U)] = 3.5
+## Delta1 = 1.5; Delta2 = 3
+# ============ f2 ============
+f2func <- function(.x, .u) return(2*(.x - 0.8*.u))
+## (E[f2(0,U)] = -0.4; E[f2(1,U)] = 0.6; E[f2(2,U)] = 1.6)*2
+## (Delta1 = 1; Delta2 = 2)*2
+
+# treatment assignment: multinomial logistic regression (softmax)
+## .sls: list of linear predictors (s). It should contain (K-1) lists, and the element of each list is an n-vector of the linear predictors of the k-th level (1 <= k < K)
+softmax <- function(.sls) {
+  K <- length(.sls) + 1  ## number of levels
+  
+  exp.s <- sapply(.sls, exp)  ## exp(LinearPredictor), n by (K-1)
+  Z <- rowSums(exp.s) + 1  ## denominator
+  
+  prob.mat <- cbind(1, exp.s) / Z
+  return(prob.mat)
+}
+
+X <- matrix(NA)
+col_indices <- c()
+for (j in 1 : p) {
+  xi.ls <- list(rnorm(2), rnorm(2, mean = -0.1))
+  LinearPred.ls <- lapply(xi.ls, function(.xi) .xi[1] + .xi[2]*U)
+  probs <- softmax(LinearPred.ls)
+  Xj <- t(apply(probs, 1, function(pr) {rmultinom(1, 1, prob = pr)})) ## n by K
+  
+  if (sum(is.na(X))) {
+    X <- Xj
+  } else { 
+      X <- cbind(X, Xj) 
+  }
+  col_indices <- append(col_indices, paste0("X", j, "_", 0:(K-1)))
+}
+colnames(X) <- col_indices
+
+# observed outcome
+# effect_ind <- sample(1:p, size = 1)
+effect_ind <- c(1, 2)
+# Y <- X[,((effect_ind-1)*K+1)] * Y0 + 
+#   X[,((effect_ind-1)*K+2)] * Y1 + 
+#   X[,((effect_ind-1)*K+3)] * Y2
+Y <- 
+  X[,(effect_ind[1] - 1) * K + 1] * f1func(0, U) +
+  X[,(effect_ind[1] - 1) * K + 2] * f1func(1, U) +
+  X[,(effect_ind[1] - 1) * K + 3] * f1func(2, U) +
+  X[,(effect_ind[2] - 1) *K + 1] * f2func(0, U) +
+  X[,(effect_ind[2] - 1) *K + 2] * f2func(1, U) +
+  X[,(effect_ind[2] - 1) *K + 3] * f2func(2, U) + eps
+```
+
+### Step 0: estimate propensity scores
+
+```{r}
+.clipped <- function(.val, .min = 0.05, .max = 0.95) {
+  ifelse(.val < .min, .min, 
+         ifelse(.val > .max, .max, .val))
+}
+```
+
+
+```{r}
+# require(nnet)
+
+ProbPred <- matrix(nrow = nrow(X), ncol = ncol(X)) ## same size as X
+
+col_indices <- colnames(X)
+
+for (j in 1 : p) {
+  jcols <- grepl(paste0("X", as.character(j), "_"), col_indices)
+  Xj <- X[, jcols, drop=F]
+  mn.fit <- multinom(Xj ~ U)
+  ProbPred[, jcols] <- predict(mn.fit, type = "probs")
+}
+colnames(ProbPred) <- colnames(X)
+
+ProbPred <- .clipped(ProbPred)
+W <- 1 / ProbPred
+```
+
+
+
+
+
+
+
