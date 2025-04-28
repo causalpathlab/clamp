@@ -21,9 +21,9 @@
 #' @param prior_inclusions_prob An (p by 1) vector of prior inclusion
 #' probabilities.
 #'
-#' @param prior_varB A scalar given the (initial) prior variance of the coefficient.
+#' @param prior_varD A scalar given the (initial) prior variance of the coefficient.
 #'
-#' @param optimize_prior_varB The optimization method to use for fitting the prior
+#' @param optimize_prior_varD The optimization method to use for fitting the prior
 #' variance.
 #'
 #' @param check_null_threshold Scalar specifying the threshold on the log-scale
@@ -62,7 +62,7 @@
 #' \item{logBF_model}{Log of (asymptotic) Bayes factor for the
 #'          weighted single effect regression.}
 #'
-#' \item{prior_varB}{Prior variance (after optimization if \code{optimize_prior_varB != "none"}).}
+#' \item{prior_varD}{Prior variance (after optimization if \code{optimize_prior_varD != "none"}).}
 #'
 #' @importFrom stats dnorm
 #' @importFrom stats uniroot
@@ -75,17 +75,17 @@
 ipw_single_effect_regression_binary <-
   function(y, X,
            W = NULL,
-           prior_varB,
+           prior_varD,
            residual_variance = 1,
            prior_inclusion_prob = NULL,
-           optimize_prior_varB = c("none", "optim", "EM", "simple"),
+           optimize_prior_varD = c("none", "optim", "EM", "simple"),
            check_null_threshold = 0,
            mle_estimator = c("mHT", "WLS"),
            mle_variance_estimator = c("bootstrap", "sandwich"),
            nboots = 100,
            seed = NULL) {
 
-    optimize_prior_varB <- match.arg(optimize_prior_varB)
+    optimize_prior_varD <- match.arg(optimize_prior_varD)
 
     n <- nrow(X)
     p <- ncol(X)
@@ -99,7 +99,7 @@ ipw_single_effect_regression_binary <-
 
     switch(mle_variance_estimator,
            "bootstrap" = {
-             betahat <- estimate_average_treatment_effect_binary(X, y, W,
+             deltahat <- estimate_average_treatment_effect_binary(X, y, W,
                                                   mle_estimator = mle_estimator)
              shat2 <-
                bootstrap_ipw_variance_binary(X = X, y = y, W = W,
@@ -109,11 +109,11 @@ ipw_single_effect_regression_binary <-
 
            "sandwich" = {
              # Both X and y need to be centralized!
-             betahat <- rep(NA, times = p)
+             deltahat <- rep(NA, times = p)
              shat2 <- rep(NA, times = p)
              for (j in 1 : p) {
                lmfit <- lm(y ~ X[,j], weights = W[,j])
-               betahat[j] <- coefficients(lmfit)[2]
+               deltahat[j] <- coefficients(lmfit)[2]
                shat2[j] <- vcovHC(lmfit, type = "HC")[2,2]
              }
            })
@@ -128,19 +128,19 @@ ipw_single_effect_regression_binary <-
         stop("The length of prior inclusion probability does not match")
     }
 
-    if (optimize_prior_varB != "EM" && optimize_prior_varB != "none") {
-      prior_varB <- optimize_prior_variance(optimize_prior_varB, betahat, shat2,
+    if (optimize_prior_varD != "EM" && optimize_prior_varD != "none") {
+      prior_varD <- optimize_prior_variance(optimize_prior_varD, deltahat, shat2,
                                   prior_inclusion_prob,
                                   alpha = NULL, mu2 = NULL,
-                                  prior_varB_init = prior_varB,
+                                  prior_varD_init = prior_varD,
                                   check_null_threshold = check_null_threshold)
     }
 
     # compute log of Bayes factor (logBF) and log of posterior odds (logPO)
     # .loge <- function(t) log(t+.Machine$double.eps) (in `elbo.R`)
-    zscore2 <- betahat^2 / shat2
-    logBF <- 1/2 * (.loge(shat2 /(shat2 + prior_varB)) +
-                      zscore2 * prior_varB / (prior_varB + shat2))
+    zscore2 <- deltahat^2 / shat2
+    logBF <- 1/2 * (.loge(shat2 /(shat2 + prior_varD)) +
+                      zscore2 * prior_varD / (prior_varD + shat2))
     logPO <- logBF + log(prior_inclusion_prob + sqrt(.Machine$double.eps))
     # deal with special case of infinite shat2
     # (e.g. happens if X does not vary)
@@ -155,16 +155,16 @@ ipw_single_effect_regression_binary <-
     # Update the posterior estimates
     # Posterior prob for each variable
     alpha <- logPO_weighted / sum(logPO_weighted)    # posterior inclusion probability
-    post_varB <- 1 / (1/shat2 + 1/prior_varB)        # posterior variance
-    mu <- prior_varB / (prior_varB + shat2) * betahat  # posterior mean
-    mu2 <- post_varB + mu^2                      # posterior second moment
+    post_varD <- 1 / (1/shat2 + 1/prior_varD)        # posterior variance
+    mu <- prior_varD / (prior_varD + shat2) * deltahat  # posterior mean
+    mu2 <- post_varD + mu^2                      # posterior second moment
 
     # ABF for WSER model
     logBF_model <- maxlogPO + log(sum(logPO_weighted))
     # = log(sum(ABF x prior_weights))
 
-    if (optimize_prior_varB == "EM") {
-      prior_varB <- optimize_prior_variance(optimize_prior_varB, betahat, shat2,
+    if (optimize_prior_varD == "EM") {
+      prior_varD <- optimize_prior_variance(optimize_prior_varD, deltahat, shat2,
                                             prior_inclusion_prob,
                                             alpha, mu2,
                                     check_null_threshold = check_null_threshold)
@@ -184,11 +184,11 @@ ipw_single_effect_regression_binary <-
     return(list(alpha = alpha,      # posterior inclusion probability
                 mu = mu,            # posterior mean
                 mu2 = mu2,          # posterior second moment
-                betahat = betahat,  # maximum likelihood estimator (MLE)
+                deltahat = deltahat,  # maximum likelihood estimator (MLE)
                 shat2 = shat2,      # approximate variance of MLE
                 logBF = logBF,      # layer-wise log of Bayes factor
                 logBF_model = logBF_model,  # log of Bayes factor of model
-                prior_varB = prior_varB,  # prior variance of coefficients B
+                prior_varD = prior_varD,  # prior variance of coefficients B
                 EWR2 = EWR2,        # expected weighted sum of squared residual
                 Eloglik = Eloglik     # expected log-likelihood
     ))

@@ -128,7 +128,7 @@
 #' \item{mu2}{An maxL by p matrix of posterior second moments,
 #'   conditional on inclusion.}
 #'
-#' \item{betahat}{An maxL by p matrix of maximum likelihood estimator,
+#' \item{deltahat}{An maxL by p matrix of maximum likelihood estimator,
 #'   conditional on inclusion.}
 #'
 #' \item{Xr}{A vector of length n, equal to \code{X \%*\% colSums(alpha
@@ -140,7 +140,7 @@
 #'
 #' \item{intercept}{Intercept (fixed or estimated).}
 #'
-#' \item{prior_varB}{Prior variance of the non-zero elements of b, equal to
+#' \item{prior_varD}{Prior variance of the non-zero elements of b, equal to
 #'   \code{scaled_prior_variance * var(y)}.}
 #'
 #' \item{elbo}{The value of the variational lower bound, or
@@ -388,7 +388,7 @@ gsusie <- function (X, y,
   colnames(s$alpha)          <- variable_names
   colnames(s$mu)             <- variable_names
   colnames(s$mu2)            <- variable_names
-  colnames(s$betahat)        <- variable_names
+  colnames(s$deltahat)        <- variable_names
   colnames(s$logBF_variable) <- variable_names
 
   # For prediction.

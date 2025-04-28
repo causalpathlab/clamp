@@ -38,7 +38,7 @@ bootstrap_ipw_variance_binary <- function(X, y, W, mle_estimator = c("mHT", "WLS
   else centralize = T
 
   # bootstrap estimators
-  boot_betahat <- matrix(NA_real_, nrow = nboots, ncol = p)
+  boot_deltahat <- matrix(NA_real_, nrow = nboots, ncol = p)
 
   for (B in 1 : nboots) {
 
@@ -47,21 +47,21 @@ bootstrap_ipw_variance_binary <- function(X, y, W, mle_estimator = c("mHT", "WLS
     yboot <- y[ind]
     Wboot <- W[ind, , drop = F]
 
-    boot_betahat[B,] <-
+    boot_deltahat[B,] <-
       estimate_average_treatment_effect_binary(X=Xboot, y=yboot, W=Wboot,
                                         mle_estimator=mle_estimator,
                                         centralize = centralize,
                                         standardize = standardize)
   }
   # Convert back to the original scale (if X is standardized)
-  boot_betahat <- sweep(boot_betahat, 2, attr(X, "scaled:scale"), "/")
+  boot_deltahat <- sweep(boot_deltahat, 2, attr(X, "scaled:scale"), "/")
 
-  if ( any(is.nan(boot_betahat)) ) {
+  if ( any(is.nan(boot_deltahat)) ) {
     warning(
       sprintf("Columns include NAN bootstrap estimates: %i. \
       Variances are estimated after dropping NANs.",
-              which( is.na(colVars(boot_betahat))) ) )
+              which( is.na(colVars(boot_deltahat))) ) )
   }
 
-  return( colVars(boot_betahat, na.rm=TRUE) )
+  return( colVars(boot_deltahat, na.rm=TRUE) )
 }

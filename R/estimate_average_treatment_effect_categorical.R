@@ -1,4 +1,4 @@
-#' @rdname estimate_average_treatment_effect
+#' @rdname estimate_average_treatment_effect_categorical
 #'
 #' @title Estimate the average treatment effect via inverse probability weighting (IPW)
 #'
@@ -41,7 +41,6 @@ estimate_average_treatment_effect_categorical <- function(X, y, W,
   if (is.null(colnames(X)))
     stop("Columns of X should be named in the format of `variable_level`.")
 
-  out_ls <- list()
   if (causal_effect_estimator == "mHT") {
     # When applying the modified Horvitz-Thompson estimator
     # the input X and response Y do not need to be scaled.
@@ -54,35 +53,20 @@ estimate_average_treatment_effect_categorical <- function(X, y, W,
     if (is.null(names(thetahat)))
       stop("Elements of thetahat should be named in the format of `variable_level`.")
 
-    thetahat0 <- thetahat[grepl("_0", names(thetahat))]
+    ## Compute deltahat
+    ### 1. Extract variable and level from names
+    var_level <- strsplit(names(thetahat), "_")
+    vars <- sapply(var_level, `[`, 1)
+    levels <- sapply(var_level, `[`, 2)
 
-    if (TRUE) {
-      # average treatment effect estimator, deltahat
+    ### 2. Get level 0 (baseline level) values for each variable
+    thetahat0 <- thetahat[levels == "0"]
+    names(thetahat0) <- vars[levels == "0"]
 
-      # suppose there is a vector indicating the columns of X.
-      # suppose the column names are separated by "_".
-      col_indices_df <- as.data.frame(
-        do.call(rbind, strsplit(names(thetahat), "_")))
-      # 1st column: variable; 2nd column: level
-      colnames(col_indices_df) <- c("variable", "level")
-
-      thetahat_df <- cbind(col_indices_df, thetahat = thetahat)
-      thetahat_df <- dcast(thetahat_df, level ~ variable,
-                           value.var = "thetahat")
-      rownames(thetahat_df) <- thetahat_df[,"level"]
-      thetahat_df <- thetahat_df[, colnames(thetahat_df) != "level"]
-      deltahat_df <-
-        sweep(as.matrix(thetahat_df[-1, colnames(thetahat_df) != "level"]), 2,
-              as.matrix(thetahat_df[1,  colnames(thetahat_df) != "level"]), "-")
-      # each column represents a variable, and each row represents a level
-      deltahat_df <- melt(deltahat_df, varnames = c("level", "variable"),
-                          value.name = "deltahat")
-      deltahat <- deltahat_df[,"deltahat"]
-      names(deltahat) <- paste0(deltahat_df[,"variable"], "_",
-                                deltahat_df[,"level"])
-      # remove empty levels (NA)
-      deltahat <- deltahat[!is.na(deltahat)]
-    }
+    ### 3. Compute differences for non-baseline levels
+    non_baseline <- levels != "0"
+    deltahat <- thetahat[non_baseline] - thetahat0[vars[non_baseline]]
+    names(deltahat) <- names(thetahat)[non_baseline]
   }
 
   return(list(
@@ -113,7 +97,9 @@ estimate_average_treatment_effect_categorical <- function(X, y, W,
 #'
 #' @keywords internal
 estimate_average_marginal_po <- function(X = NULL, W = NULL, y = NULL,
-                                           thetahat0 = NULL, deltahat = NULL) {
+                                         thetahat0 = NULL, deltahat = NULL,
+                                         .sort = TRUE,
+                                         .variable_prefix = "X") {
 
   if ( !(is.null(X) | is.null(W) | is.null(y)) ) {
     thetahat <- colSums( sweep(W*X, 1, y, "*") ) / colSums( W*X )
@@ -124,106 +110,85 @@ estimate_average_marginal_po <- function(X = NULL, W = NULL, y = NULL,
       stop("Please specify both thetahat0 and deltahat.")
     }
 
-    coefs <- append(thetahat0, deltahat)
-    col_indices_df <- as.data.frame(
-      do.call(rbind, strsplit(names(coefs), "_")))
-    # 1st column: variable; 2nd column: level
-    colnames(col_indices_df) <- c("variable", "level")
+    ### 1. Get variable names back from deltahat
+    var_level <- strsplit(names(deltahat), "_")
+    vars <- sapply(var_level, "[", 1)
 
-    coefs <- cbind(col_indices_df, coefs)
-    coefs <- dcast(coefs, level ~ variable, value.var = "coefs")
-    coefs[-1, colnames(coefs)!= "level"] <-
-      sweep(as.matrix(coefs[-1, colnames(coefs)!= "level"]), 2,
-            as.matrix(coefs[1,  colnames(coefs)!= "level"]), "+")
-    thetahat_df <- melt(coefs, varnames = c("level", "variable"),
-                     value.name = "thetahat")
-    thetahat <- thetahat_df[,"thetahat"]
-    names(thetahat) <- paste0(thetahat_df[, "variable"], "_",
-                              thetahat_df[, "level"])
-    # remove empty levels (NA)
-    thetahat <- thetahat[!is.na(thetahat)]
+    ### 2. Reconstruct the non-baseline levels
+    non_baseline_values <- deltahat + thetahat0[vars]
+    names(non_baseline_values) <- names(deltahat)
+
+    ### 3. Add back the baseline (level 0) entries
+    thetahat <- c(thetahat0, non_baseline_values)
+    names(thetahat)[1:length(thetahat0)] <- paste0(names(thetahat0), "_0")
+
+    ### 4. Sort thetahat based on their variable names (optional)
+    if (.sort) {
+      # Extract variable and level from names
+      var_level <- do.call(rbind, strsplit(names(thetahat), "_"))
+      vars <- var_level[,1]
+      levels <- as.numeric(var_level[,2])
+
+      # Order by variable, then level
+      var_num <- as.numeric(sub(.variable_prefix, "", vars))
+      ## so the variable name should begin with `.variable_prefix`
+
+      # Get the ordering index
+      ord <- order(var_num, levels)
+
+      # Reorder the vector
+      thetahat <- thetahat[ord]
+    }
   }
 
   return(thetahat)
 }
 
 
-# standardize = NULL,
-# centralize = NULL
+# if (TRUE) {
+#   # average treatment effect estimator, deltahat
+#
+#   # suppose there is a vector indicating the columns of X.
+#   # suppose the column names are separated by "_".
+#   col_indices_df <- as.data.frame(
+#     do.call(rbind, strsplit(names(thetahat), "_")))
+#   # 1st column: variable; 2nd column: level
+#   colnames(col_indices_df) <- c("variable", "level")
+#
+#   thetahat_df <- cbind(col_indices_df, thetahat = thetahat)
+#   thetahat_df <- dcast(thetahat_df, level ~ variable,
+#                        value.var = "thetahat")
+#   rownames(thetahat_df) <- thetahat_df[,"level"]
+#   thetahat_df <- thetahat_df[, colnames(thetahat_df) != "level"]
+#   deltahat_df <-
+#     sweep(as.matrix(thetahat_df[-1, colnames(thetahat_df) != "level"]), 2,
+#           as.matrix(thetahat_df[1,  colnames(thetahat_df) != "level"]), "-")
+#   # each column represents a variable, and each row represents a level
+#   deltahat_df <- melt(deltahat_df, varnames = c("level", "variable"),
+#                       value.name = "deltahat")
+#   deltahat <- deltahat_df[,"deltahat"]
+#   names(deltahat) <- paste0(deltahat_df[,"variable"], "_",
+#                             deltahat_df[,"level"])
+#   # remove empty levels (NA)
+#   deltahat <- deltahat[!is.na(deltahat)]
+# }
 
-# # suppose there is a vector indicating the columns of X.
-# # suppose the column names are separated by "_".
-# col_indices <- colnames(X)
-# col_indices_df <- as.data.frame(do.call(rbind, strsplit(col_indices, "_")))
+# coefs <- append(thetahat0, deltahat)
+# col_indices_df <- as.data.frame(
+#   do.call(rbind, strsplit(names(coefs), "_")))
 # # 1st column: variable; 2nd column: level
 # colnames(col_indices_df) <- c("variable", "level")
-# col_indices_df[, "level"] <- as.factor(col_indices_df[,"level"])
+#
+# coefs <- cbind(col_indices_df, coefs)
+# coefs <- dcast(coefs, level ~ variable, value.var = "coefs")
+# coefs[-1, colnames(coefs)!= "level"] <-
+#   sweep(as.matrix(coefs[-1, colnames(coefs)!= "level"]), 2,
+#         as.matrix(coefs[1,  colnames(coefs)!= "level"]), "+")
+# thetahat_df <- melt(coefs, varnames = c("level", "variable"),
+#                     value.name = "thetahat")
+# thetahat <- thetahat_df[,"thetahat"]
+# names(thetahat) <- paste0(thetahat_df[, "variable"], "_",
+#                           thetahat_df[, "level"])
+# # remove empty levels (NA)
+# thetahat <- thetahat[!is.na(thetahat)]
 
-
-# # Return
-# if ( !is.null(attr(X, "scaled:scale")) )  ## if not bootstrapping
-#   return( deltahat/attr(X, "scaled:scale") )
-# else   ## if bootstrapping, return the estimates directly.
-#   return(deltahat)
-
-
-# "WLS" = {
-#
-#   # Scale X:
-#   ## 1. When inputting the original data matrix `X`,
-#   ## `attr(X, "scaled:center)` and `attr(X, "scaled:scale")` would
-#   ## not be NULL. In this case, we centralize and standardize each
-#   ## column of X according to their coresponding center and scale.
-#   ## 2. If inputing the bootstrap data matrix `Xboot` as `X`,
-#   ## `attr(X, "scaled:center)` and `attr(X, "scaled:scale")` would
-#   ## be NULL. In this case, whether each column of `Xboot` are
-#   ## centralized and standardized depends on the arguments
-#   ## `centralize` and `standardized`.
-#
-#   if ( !is.null(attr(X, "scaled:center")) &
-#        !is.null(attr(X, "scaled:scale"))) {
-#     X_ <- sweep(X, 2, attr(X, "scaled:center"), "-")
-#     X_ <- sweep(X_, 2, attr(X, "scaled:scale"), "/")
-#   }
-#   else {  ## If bootstrapping
-#
-#     if (centralize) {
-#       X_ <- sapply(1:ncol(W),
-#                    function(j) X[,j] - weighted.mean(x=X[,j], w=W[,j]))
-#     }
-#     else {
-#       X_ <- X
-#     }
-#
-#     if (standardize) {
-#       X_ <- sapply(1:ncol(W),
-#                    function(j) X_[,j] / weightedSd(x=X[,j], w=W[,j]))
-#     }
-#     else {
-#       X_ <- X_
-#     }
-#
-#   }
-#
-#   # Scale y: y_ is a n by p matrix.
-#   ## 1. When inputting the original response vector `y`,
-#   ## `attr(y, "scaled:center")` is not NULL. In this case, we create
-#   ## an n by p matrix `y_`, of which each column is a centralized `y`
-#   ## with respect to the weighted mean `weighted.mean(y, W[,j])`.
-#   ## 2. When inputting the bootstrap response vector `yboot` as `y`,
-#   ## `attr(y, "scaled:center")`
-#   if ( !is.null(attr(y, "scaled:center")) ) {
-#     y_ <- outer(c(y), attr(y, "scaled:center"), "-")
-#   } else {
-#     if (centralize) {
-#       y_ <- sapply(1:ncol(W), function(j) y - weighted.mean(y, W[,j]))
-#     } else {
-#       y_ <- matrix(rep(y, times = ncol(X_)), ncol = ncol(X_))
-#     }
-#   }
-#
-#   # Obtain weighted least-squares estimates
-#   wxy <- colSums(W * X_ * y_)
-#   wx2  <- colSums(W * X_^2)
-#   deltahat <- wxy / wx2
-# }

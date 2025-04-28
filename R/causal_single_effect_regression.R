@@ -21,9 +21,9 @@
 #' @param prior_inclusions_prob An (p by 1) vector of prior inclusion
 #' probabilities.
 #'
-#' @param prior_varB A scalar given the (initial) prior variance of the coefficient.
+#' @param prior_varD A scalar given the (initial) prior variance of the coefficient.
 #'
-#' @param optimize_prior_varB The optimization method to use for fitting the prior
+#' @param optimize_prior_varD The optimization method to use for fitting the prior
 #' variance.
 #'
 #' @param check_null_threshold Scalar specifying the threshold on the log-scale
@@ -62,7 +62,7 @@
 #' \item{logBF_model}{Log of (asymptotic) Bayes factor for the
 #'          weighted single effect regression.}
 #'
-#' \item{prior_varB}{Prior variance (after optimization if \code{optimize_prior_varB != "none"}).}
+#' \item{prior_varD}{Prior variance (after optimization if \code{optimize_prior_varD != "none"}).}
 #'
 #' @importFrom stats dnorm
 #' @importFrom stats uniroot
@@ -75,17 +75,17 @@
 causal_single_effect_regression <-
   function(y, X,
            W = NULL,
-           prior_varB,
+           prior_varD,
            residual_variance = 1,
            prior_inclusion_prob = NULL,
-           optimize_prior_varB = c("none", "optim", "EM", "simple"),
+           optimize_prior_varD = c("none", "optim", "EM", "simple"),
            check_null_threshold = 0,
            causal_effect_estimator = c("mHT"),
            variance_estimator = c("bootstrap"),
            nboots = 100,
            seed = NULL) {
 
-    optimize_prior_varB <- match.arg(optimize_prior_varB)
+    optimize_prior_varD <- match.arg(optimize_prior_varD)
 
     nn <- nrow(X)
 
@@ -102,49 +102,49 @@ causal_single_effect_regression <-
                estimate_average_treatment_effect_categorical(X, y, W,
                     causal_effect_estimator = causal_effect_estimator)
              deltahat <- ATE$deltahat
-             thetahat0 <- ATE$thetahat0
+             # thetahat0 <- ATE$thetahat0
 
              boot_result <-
-               bootstrap_ipw_variance(X = X, y = y, W = W,
+               bootstrap_ipw_variance_categorical(X = X, y = y, W = W,
                             causal_effect_estimator = causal_effect_estimator,
                             nboots = nboots, seed = seed)
              shat2 <- boot_result$deltahat_bootVars
-             thetahat0_bootMeans <- boot_result$thetahat0_bootMeans
+             # thetahat0_bootMeans <- boot_result$thetahat0_bootMeans
            }
            )
 
-    pcoefs <- length(deltahat)  ## number of non-intercept coefficients
+    plevels <- length(deltahat)  ## number of levels
+    # plevels <- length(attr(X, "K_minus_1_dummy_indices"))
 
     # Check prior_inclusion_probability
     ## If `prior_inclusion_probability` is consistent to all variables,
     ## its value should not affect the posterior inclusion probability (alpha).
     if (is.null(prior_inclusion_prob)) {
-      prior_inclusion_prob <- rep(1/pcoefs, times = pcoefs)
+      prior_inclusion_prob <- rep(1/plevels, times = plevels)
     } else {
-      if (length(prior_inclusion_prob) != pcoefs)
+      if (length(prior_inclusion_prob) != plevels)
         stop("The length of prior inclusion probability does not match")
     }
 
-    if (optimize_prior_varB != "EM" && optimize_prior_varB != "none") {
-      prior_varB <- optimize_prior_variance(optimize_prior_varB, deltahat, shat2,
+    if (optimize_prior_varD != "EM" && optimize_prior_varD != "none") {
+      prior_varD <- optimize_prior_variance(optimize_prior_varD, deltahat, shat2,
                                   prior_inclusion_prob,
                                   alpha = NULL, mu2 = NULL,
-                                  prior_varB_init = prior_varB,
+                                  prior_varD_init = prior_varD,
                                   check_null_threshold = check_null_threshold)
     }
 
     # compute log of Bayes factor (logBF) and log of posterior odds (logPO)
     # .loge <- function(t) log(t+.Machine$double.eps) (in `elbo.R`)
     zscore2 <- deltahat^2 / shat2
-    logBF <- 1/2 * (.loge(shat2 /(shat2 + prior_varB)) +
-                      zscore2 * prior_varB / (prior_varB + shat2))
+    logBF <- 1/2 * (.loge(shat2 /(shat2 + prior_varD)) +
+                      zscore2 * prior_varD / (prior_varD + shat2))
     logPO <- logBF + log(prior_inclusion_prob + sqrt(.Machine$double.eps))
     # deal with special case of infinite shat2
     # (e.g. happens if X does not vary)
     logBF[is.infinite(shat2)] <- 0
     logPO[is.infinite(shat2)] <- 0
     maxlogPO <- max(logPO)
-
     # logPO_tilde is proportional to posterior odds = BF * prior,
     # but subtract max for numerical stability
     logPO_weighted <- exp(logPO - maxlogPO)
@@ -152,30 +152,30 @@ causal_single_effect_regression <-
     # Update the posterior estimates
     # Posterior prob for each variable
     alpha <- logPO_weighted / sum(logPO_weighted)    # posterior inclusion probability
-    post_varB <- 1 / (1/shat2 + 1/prior_varB)        # posterior variance
-    mu <- prior_varB / (prior_varB + shat2) * deltahat  # posterior mean
-    mu2 <- post_varB + mu^2                      # posterior second moment
+    posterior_varD <- 1 / (1/shat2 + 1/prior_varD)   # posterior variance
+    mu <- prior_varD / (prior_varD + shat2) * deltahat  # posterior mean
+    mu2 <- posterior_varD + mu^2                      # posterior second moment
 
     # ABF for WSER model
     logBF_model <- maxlogPO + log(sum(logPO_weighted))
     # = log(sum(ABF x prior_weights))
 
-    if (optimize_prior_varB == "EM") {
-      prior_varB <- optimize_prior_variance(optimize_prior_varB, deltahat, shat2,
+    if (optimize_prior_varD == "EM") {
+      prior_varD <- optimize_prior_variance(optimize_prior_varD, deltahat, shat2,
                                             prior_inclusion_prob,
                                             alpha, mu2,
                                     check_null_threshold = check_null_threshold)
     }
 
-    return(list(alpha = alpha,      # posterior inclusion probability
+    return(list(alpha = alpha,      # level-wise posterior inclusion probability
                 mu = mu,            # posterior mean
                 mu2 = mu2,          # posterior second moment
                 deltahat = deltahat,  # (non bayesian) ATEs
                 shat2 = shat2,        # approximate variances of ATEs
-                thetahat0 = thetahat0,  # (non bayesian) baseline causal effect estimates. Replaced by the bootstrap means?
+                # thetahat0 = thetahat0,  # (non bayesian) baseline causal effect estimates. Replaced by the bootstrap means?
                 logBF = logBF,      # layer-wise log of Bayes factor
                 logBF_model = logBF_model,  # log of Bayes factor of model
-                prior_varB = prior_varB,  # prior variance of coefficients B
+                prior_varD = prior_varD  # prior variance of coefficients B
     ))
   }
 

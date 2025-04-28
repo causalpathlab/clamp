@@ -1,11 +1,15 @@
-#' ...
+#' @title CLAMP for categorical exposure variables.
 #'
-#' @param X An n by p matrix of covariates.
+#' @param X An n by p matrix of covariates. X should be either one-hot encoded.
+#'  If not, then each column of X would be considered as factors.
 #'
 #' @param y The observed responses, a vector of length n.
 #'
-#' @param W The weight matrix of size (n by p) or a n-dim vector.
-#'   By default, \code{W=NULL}.
+#' @param W The weight matrix of size (n by p-levels) or a n-dim vector.
+#'   By default, \code{W=NULL}. Each column of W, which should be named in the
+#'   format of \emph{"variable_level"}, represents the inverse
+#'   probability weight of a specific level of a variable. It should have the
+#'   same size as the one-hot encoded version of X.
 #'
 #' @param maxL Maximum number of non-zero effects in the susie
 #'   regression model. If L is larger than the number of covariates, p,
@@ -160,7 +164,7 @@
 #' \item{mu2}{An maxL by p matrix of posterior second moments,
 #'   conditional on inclusion.}
 #'
-#' \item{betahat}{An maxL by p matrix of maximum likelihood estimator,
+#' \item{deltahat}{An maxL by p matrix of maximum likelihood estimator,
 #'   conditional on inclusion.}
 #'
 #' \item{Xr}{A vector of length n, equal to \code{X \%*\% colSums(alpha
@@ -174,7 +178,7 @@
 #'
 #' \item{sigma2}{Residual variance (fixed or estimated).}
 #'
-#' \item{prior_varB}{Prior variance of the non-zero elements of b, equal to
+#' \item{prior_varD}{Prior variance of the non-zero elements of b, equal to
 #'   \code{scaled_prior_variance * var(y)}.}
 #'
 #' \item{elbo}{The value of the variational lower bound, or
@@ -206,12 +210,14 @@
 #' @importFrom stats var
 #' @importFrom stats weighted.mean
 #' @importFrom utils modifyList
+#' @import fastDummies
 #'
 #' @export
 #'
 clamp_categorical <- function (X, y,
                    W = NULL, ## IPW matrix, should be of same size of X
                    maxL = min(10,ncol(X)),
+                   hierarchical_pip = FALSE,
                    # family = "linear",
                    scaled_prior_variance = 0.2,
                    residual_variance = NULL,
@@ -223,7 +229,7 @@ clamp_categorical <- function (X, y,
                    estimate_prior_method = c("optim", "EM", "simple"),
                    check_null_threshold = 0,
                    causal_effect_estimator = c("mHT"),
-                   variance_estimator = c("bootstrap", "sandwich"),
+                   variance_estimator = c("bootstrap"),
                    nboots = 100,
                    seed = NULL,
                    burn_in = 10,
@@ -253,6 +259,7 @@ clamp_categorical <- function (X, y,
   # Process input mle_variance_estimator
   variance_estimator = match.arg(variance_estimator)
 
+  ##============== Check inputs ==============##
   # Check input X.
   if (!(is.double(X) & is.matrix(X)) & !inherits(X,"CsparseMatrix") &
       is.null(attr(X,"matrix.type")))
@@ -273,11 +280,53 @@ clamp_categorical <- function (X, y,
   }
 
   ## Check the column names of input X
-  if (is.null(colnames(X)))
-    colnames(X) <- paste0("X", 1:ncol(X))
+  if (is.null(colnames(X))) {
+    # colnames(X) <- paste0("X", 1:ncol(X))
+    stop("Please name the columns of X.")
+  }
+
+  n <- nrow(X)
+  pvars <- length(unique(sub("_.*", "", colnames(X))))  ## number of variables
+  if (pvars > 1000 & !requireNamespace("Rfast",quietly = TRUE))
+    warning_message("For an X with many columns, please consider installing",
+                    "the Rfast package for more efficient credible set (CS)",
+                    "calculations.", style='hint')
+
+  ###======= Convert X =======###
+  ## Make an original copy of X.
+  X_original <- X
+  ## If X is not one-hot encoded...
+  if ( !is.null(W) & (ncol(W) != ncol(X)) ) {
+    ## Convert X into one-hot encoding version.
+    ## Each column of X is named after "variable_level".
+    X <- apply(X, 2, as.factor)
+    X <- fastDummies::dummy_cols(X,
+                                 remove_first_dummy = F,
+                                 remove_selected_columns = T)
+
+    ## If not applying hierarchical_PIP method, i.e., treating each column of X
+    ## as a independent variable, then maxL needs to be enlarged accordingly.
+    if (!hierarchical_pip) {
+      maxL <- maxL * round(ncol(X) / pvars - 1)
+    }
+
+  } else {
+    # If X is one-hot encoded, then maxL may need to be adjusted accordingly
+    if (hierarchical_pip) {
+      # if hierarchical_pip, maxL = pvars
+      maxL <- pvars
+    }
+
+  }
+  ## X is the one-hot encoded version hereinafter.
+  K_minus_1_dummy_indices <- which(!grepl("_0", colnames(X)))
+  plevels <- length(K_minus_1_dummy_indices)
+  attr(X, "K_minus_1_dummy_indices") <- K_minus_1_dummy_indices
 
 
-  # Center and scale input.
+
+  ##================== Center and scale input ==================##
+  ## Seems redundant.
   if (causal_effect_estimator == "mHT") {
     # When applying the modified Horvitz-Thompson estimator,
     # the input X and response Y does not need to be scaled.
@@ -305,34 +354,47 @@ clamp_categorical <- function (X, y,
 
   if (intercept) {  ## do not affect the estimation of beta
     mean_y = mean(y)
-    attr(y, "scaled:center") <-
-      sapply(1:ncol(W), function(j) weighted.mean(x=y, w=W[,j]))
   }
 
-
-  n <- nrow(X)
-  p <- ncol(X)
-  if (p > 1000 & !requireNamespace("Rfast",quietly = TRUE))
-    warning_message("For an X with many columns, please consider installing",
-                    "the Rfast package for more efficient credible set (CS)",
-                    "calculations.", style='hint')
-
-
-  # Check weight matrix W
+  ##=================== Check weight matrix W ===================##
   if (!is.null(W)){
     # Check whether the dimensions of W and X match
     if (!( (length(W) == nrow(X)) | all(dim(W) == dim(X)) ))
       stop("The dimensions of W and input X do not match!")
+
+    # Check whether the column names of W and X match
+    if ( any( sort(colnames(W)) != sort(colnames(X)) ) ) {
+      stop("Column names of W and X do not match!")
+    }
+
+    # sort the columns of W according to the column names of X
+    W <- W[,colnames(X)]
   }
 
-  # Initialize clamp fit.
-  s <- init_setup(n=n, p=p, maxL=maxL, family="linear",
-                  scaled_prior_variance=scaled_prior_variance,
-                  residual_variance=residual_variance,
-                  prior_inclusion_prob=prior_inclusion_prob,
-                  varY=as.numeric(var(y)),
-                  standardize=standardize)
+
+  ##============= Initialize clamp fit. ===============##
+  s <- init_setup(n = n, p = plevels, maxL = maxL, family = "linear",
+                  scaled_prior_variance = scaled_prior_variance,
+                  residual_variance = residual_variance,
+                  prior_inclusion_prob = prior_inclusion_prob,
+                  varY = as.numeric(var(y)),
+                  standardize = standardize)
   s <- init_finalize(s)
+
+  ##============= Initialize component: variable_alpha ======||
+  ##============= when hierarchical_pip = TRUE ==============##
+  if (hierarchical_pip) {
+    # extract variable names
+    vars <- sub("_.*", "", colnames(X[,K_minus_1_dummy_indices, drop=F]))
+    # initialize variable-wise PIP (variable_alpha)
+    s$variable_alpha <- matrix(1/length(unique(vars)),
+                               nrow = maxL,
+                               ncol = length(K_minus_1_dummy_indices))
+    colnames(s$variable_alpha) <- vars
+  } else {
+    # name level-wise PIP (alpha)
+    colnames(s$alpha) <- colnames(X)[K_minus_1_dummy_indices]
+  }
 
 
   # Initialize elbo to NA.
@@ -342,10 +404,6 @@ clamp_categorical <- function (X, y,
   # Initialize log-likelihood into NA
   loglik = rep(as.numeric(NA),max_iter+1)  ## not required to know...
   loglik[1] = -Inf
-
-  # (Expected) weighted sum of squared residual
-  WRSS = rep(as.numeric(NA),max_iter+1)  ## not required to know...
-  WRSS[1] = -Inf
 
   tracking = list()
 
@@ -357,9 +415,10 @@ clamp_categorical <- function (X, y,
     # if !is.null(seed), update the random seed in every iteration.
     if (!is.null(seed)) {seed <- seed + tt}
 
-    s <- update_each_effect(X = X, y = y, s = s, W = W,
+    s <- clamp_update_each_effect_categorical(X = X, y = y, s = s, W = W,
                           causal_effect_estimator = causal_effect_estimator,
                           variance_estimator = variance_estimator,
+                          hierarchical_pip = hierarchical_pip,
                           nboots = nboots,
                           seed = seed,
                           estimate_prior_variance = estimate_prior_variance,
@@ -369,26 +428,32 @@ clamp_categorical <- function (X, y,
                           robust_method = robust_method,
                           robust_estimator = robust_estimator)
 
-    # Compute objective before updating residual variance because part
-    # of the objective s$kl has already been computed under the
-    # residual variance before the update.
-    # elbo[tt+1] = get_elbo(X, y, s, W)
-    elbo[tt+1]   = get_elbo(s)
-    WRSS[tt+1]   = mean(s$EWR2)
-    loglik[tt+1] = mean(s$Eloglik)
+    # Estimate intercept.
+    if (intercept) {
+      if (!hierarchical_pip) {  # if not applying hierarchical PIP
+        s$intercept <- mean_y -
+          mean(X[, K_minus_1_dummy_indices, drop=F]
+               %*% as.matrix(colSums(s$alpha * s$mu)))
+      } else {  # if applying hierarchical PIP
+        s$intercept <- mean_y -
+          mean(X[, K_minus_1_dummy_indices, drop=F]
+               %*% as.matrix(colSums(s$variable_alpha * s$mu)))
+      }
+    } else {
+      s$intercept <- 0
+    }
+
+    elbo[tt+1]   = get_elbo(X, y, s)
+    loglik[tt+1] = Eloglik(X, y, s)
 
     if (verbose){
       print(paste("#iteration:", tt,
                   "; objective:", round(elbo[tt+1], 2),
-                  "; expected WRSS:", round(WRSS[tt+1], 2),
-                  # "; loglik:", round(loglik[tt+1], 2),
-                  "; sum(alpha^2):", round(sum(s$alpha^2), 2)))
+                  "; loglik:", round(loglik[tt+1], 2)))
     }
 
-    ## convergence condition
-    ## some outputs:
+    ## Convergence condition
     if (variance_estimator == "bootstrap") {
-
       ## If the approach selects nothing,
       ## then the objective would be a constant after a few iterations.
       if (abs(elbo[tt+1] - elbo[tt]) < tol) {
@@ -415,16 +480,14 @@ clamp_categorical <- function (X, y,
       }
     }
 
-
+    ## If not converged, update the residual variance.
     if (estimate_residual_variance) {
       s$sigma2 <- pmax(residual_variance_lowerbound,
-                       estimate_residual_variance_fun(X,y,s))
+                       estimate_residual_variance_fun(X, y, s))
 
       if (s$sigma2 > residual_variance_upperbound)
         s$sigma2 <- residual_variance_upperbound
     }
-    print(s$sigma2)
-
 
   }
 
@@ -433,9 +496,6 @@ clamp_categorical <- function (X, y,
   s$elbo = elbo
   loglik = loglik[2:(tt+1)]
   s$loglik = loglik
-  # Remove redundancies
-  s$Eloglik = NULL
-  s$EWR2 = NULL
 
   s$niter = tt
 
@@ -444,24 +504,7 @@ clamp_categorical <- function (X, y,
     s$converged = FALSE
   }
 
-
-  if (intercept) {
-    # Estimate unshrunk intercept.
-    # Treat this as an ordinary linear regression model
-    # Here, the intercept and the estimated residual variance implicitly
-    # represents the effect of the confounding factor on y.
-    s$intercept <- mean_y -
-      sum( colMeans(X) * (colSums(s$alpha * s$mu) / colSds(X)) )
-    s$fitted <- s$Xr + mean_y
-    # s$intercept <- mean_y -
-    #   sum( attr(X,"scaled:center") *
-    #          (colSums(s$alpha * s$mu)/attr(X,"scaled:scale")) )
-  } else {
-    s$intercept <- 0
-    s$fitted <- s$Xr
-  }
-
-
+  s$fitted <- s$Xr + s$intercept
   s$fitted = drop(s$fitted)
   names(s$fitted) = `if`(is.null(names(y)),rownames(X),names(y))
 
@@ -470,19 +513,20 @@ clamp_categorical <- function (X, y,
 
   # Credible Sets and PIPs
   if (!is.null(coverage) && !is.null(min_abs_corr)) {
-    s$sets = clamp_get_cs(s,coverage = coverage,X = X,
+    ## Use the original X to calculate the correlation between variables.
+    s$sets = clamp_get_cs(s,coverage = coverage,X = X_original,
                                   min_abs_corr = min_abs_corr,
                                   n_purity = n_purity)
     s$pip = clamp_get_pip(s,prune_by_cs = FALSE,prior_tol = prior_tol)
   }
 
   # (Re)name the outputs
-  variable_names             <- colnames(X)
-  names(s$pip)               <- variable_names
+  variable_names             <- colnames(X[,K_minus_1_dummy_indices])
+  # names(s$pip)               <- variable_names
   colnames(s$alpha)          <- variable_names
   colnames(s$mu)             <- variable_names
   colnames(s$mu2)            <- variable_names
-  colnames(s$betahat)        <- variable_names
+  colnames(s$deltahat)       <- variable_names
   colnames(s$logBF_variable) <- variable_names
 
   # For prediction.

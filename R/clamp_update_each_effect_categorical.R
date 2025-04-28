@@ -51,9 +51,10 @@
 #'   \code{robust_estimator="M"} indicates the M-estimator is applied, and
 #'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
-update_each_effect <- function (X, y, s, W=NULL,
+clamp_update_each_effect_categorical <- function (X, y, s, W=NULL,
                   causal_effect_estimator = c("mHT"),
-                  variance_estimator = c("bootstrap", "sandwich"),
+                  variance_estimator = c("bootstrap"),
+                  hierarchical_pip = FALSE,
                   nboots = 100,
                   seed = NULL,
                   estimate_prior_variance = FALSE,
@@ -67,8 +68,8 @@ update_each_effect <- function (X, y, s, W=NULL,
 
   robust_method    <- match.arg(robust_method)
   robust_estimator <- match.arg(robust_estimator)
-  mle_estimator    <- match.arg(mle_estimator)
-  mle_variance_estimator <- match.arg(mle_variance_estimator)
+  causal_effect_estimator    <- match.arg(causal_effect_estimator)
+  variance_estimator <- match.arg(variance_estimator)
 
   # Check weight matrix W
   if (!is.null(W) &
@@ -101,16 +102,12 @@ update_each_effect <- function (X, y, s, W=NULL,
   if (is.matrix(W)) {
     WW <- sweep(W, 1, s$importance_weight, "*")
   }
-  # else if (is.vector(W)) {
-  #   WW <- W * s$importance_weight
-  # } else {
-  #   WW <- s$importance_weight
-  # }
   # haven't expect the situation of weight vectors.
 
   # Repeat for each effect to update.
-  maxL = nrow(s$alpha)
-  if (maxL > 0) {
+  L = nrow(s$alpha)
+
+  if (L > 0) {
 
     # # Remove abnormal points  ## dropped.
     # if (length(s$abnormal_subjects) > abnormal_proportion * nrow(X)) {
@@ -126,21 +123,28 @@ update_each_effect <- function (X, y, s, W=NULL,
     #   attr(X_sub, "scaled:center") <- attr(X, "scaled:center")
     # }
 
+    # ## column indices for K-1 dummy encoding version of X.
+    K_minus_1_dummy_indices <- attr(X, "K_minus_1_dummy_indices")
+
     # Update each effect
-    for (l in 1:maxL) {
+    for (l in 1:L) {
 
       ## residuals belonging to layer l
-      # Rl <- current_R + compute_Xb(X = X_sub, b = s$alpha[l,]*s$mu[l,])
-      Rl <- current_R + compute_Xb(X = X, b = s$alpha[l,]*s$mu[l,])
-
+      if (!hierarchical_pip) {
+        Rl <- current_R + compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
+                                     s$alpha[l,]*s$mu[l,])
+      } else {
+        Rl <- current_R + compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
+                                     s$variable_alpha[l,]*s$mu[l,])
+      }
 
       ## fit the causal single effect regression model
       res <- causal_single_effect_regression(y=Rl, X=X,  ## drop "_sub"
                             W = WW,                      ## drop "_sub"
                             residual_variance = s$sigma2,
                             prior_inclusion_prob = s$pie,
-                            prior_varB = s$prior_varB[l],
-                            optimize_prior_varB = estimate_prior_method,
+                            prior_varD = s$prior_varD[l],
+                            optimize_prior_varD = estimate_prior_method,
                             check_null_threshold = check_null_threshold,
                             causal_effect_estimator = causal_effect_estimator,
                             variance_estimator = variance_estimator,
@@ -151,18 +155,39 @@ update_each_effect <- function (X, y, s, W=NULL,
       # Update the variational estimate of the posterior distributions.
       s$mu[l,]        = res$mu
       s$mu2[l,]       = res$mu2
-      s$alpha[l,]     = res$alpha
-      s$betahat[l,]   = res$betahat
+      s$alpha[l,]     = res$alpha  ## level-wise posterior inclusion probability
+      s$deltahat[l,]   = res$deltahat
       s$shat2[l,]     = res$shat2
-      s$prior_varB[l] = res$prior_varB
+      s$prior_varD[l] = res$prior_varD
       s$logBF[l]      = res$logBF_model
       s$logBF_variable[l,] = res$logBF
 
       # Update the current residuals
-      current_R <- Rl - compute_Xb(X, s$alpha[l,] * s$mu[l,]) ## (?!)
+      if (!hierarchical_pip) { ## traditional way
+        current_R <- Rl - compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
+                                     s$alpha[l,] * s$mu[l,])
+
+      } else { ## hierarchical_pip is applied
+
+        # sum level-wise PIP values (s$alpha) by variables
+        # and propagate them to all levels
+        s$variable_alpha[l,] <- tapply(s$alpha[l,], vars, sum)[vars]
+        # update the current residual
+        current_R <- Rl - compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
+                                     s$variable_alpha[l,] * s$mu[l,])
+      }
+
     }
 
-    s$Xr <- compute_Xb(X, colSums(s$alpha * s$mu))  # update linear predictor
+    # update linear predictor
+    if (!hierarchical_pip) {
+      s$Xr <- compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
+                         colSums(s$alpha * s$mu))
+    } else {
+      s$Xr <- compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
+                         colSums(s$variable_alpha, s$mu))
+    }
+
   }
 
   return(s)

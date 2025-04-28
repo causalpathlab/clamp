@@ -105,8 +105,8 @@ gsusie_update_each_effect <- function (X, y, s, model,
                                   W = WW_sub,
                                   residual_variance = 1,
                                   prior_inclusion_prob = s$pie,
-                                  prior_varB = s$prior_varB[l],
-                                  optimize_prior_varB = estimate_prior_method,
+                                  prior_varD = s$prior_varD[l],
+                                  optimize_prior_varD = estimate_prior_method,
                                   mle_variance_estimator="naive",
                                   check_null_threshold = check_null_threshold)
 
@@ -114,8 +114,8 @@ gsusie_update_each_effect <- function (X, y, s, model,
       s$mu[l,]        = res$mu
       s$mu2[l,]       = res$mu2
       s$alpha[l,]     = res$alpha
-      s$betahat[l,]   = res$betahat
-      s$prior_varB[l] = res$prior_varB
+      s$deltahat[l,]   = res$deltahat
+      s$prior_varD[l] = res$prior_varD
       s$logBF[l]      = res$logBF_model
       s$logBF_variable[l,] = res$logBF
       # s$KL[l]     = -res$loglik +
