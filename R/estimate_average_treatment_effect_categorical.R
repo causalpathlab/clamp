@@ -56,16 +56,16 @@ estimate_average_treatment_effect_categorical <- function(X, y, W,
     ## Compute deltahat
     ### 1. Extract variable and level from names
     var_level <- strsplit(names(thetahat), "_")
-    vars <- sapply(var_level, `[`, 1)
+    variables <- sapply(var_level, `[`, 1)
     levels <- sapply(var_level, `[`, 2)
 
     ### 2. Get level 0 (baseline level) values for each variable
     thetahat0 <- thetahat[levels == "0"]
-    names(thetahat0) <- vars[levels == "0"]
+    names(thetahat0) <- variables[levels == "0"]
 
     ### 3. Compute differences for non-baseline levels
     non_baseline <- levels != "0"
-    deltahat <- thetahat[non_baseline] - thetahat0[vars[non_baseline]]
+    deltahat <- thetahat[non_baseline] - thetahat0[variables[non_baseline]]
     names(deltahat) <- names(thetahat)[non_baseline]
   }
 
@@ -112,10 +112,10 @@ estimate_average_marginal_po <- function(X = NULL, W = NULL, y = NULL,
 
     ### 1. Get variable names back from deltahat
     var_level <- strsplit(names(deltahat), "_")
-    vars <- sapply(var_level, "[", 1)
+    variables <- sapply(var_level, "[", 1)
 
     ### 2. Reconstruct the non-baseline levels
-    non_baseline_values <- deltahat + thetahat0[vars]
+    non_baseline_values <- deltahat + thetahat0[variables]
     names(non_baseline_values) <- names(deltahat)
 
     ### 3. Add back the baseline (level 0) entries
@@ -126,11 +126,11 @@ estimate_average_marginal_po <- function(X = NULL, W = NULL, y = NULL,
     if (.sort) {
       # Extract variable and level from names
       var_level <- do.call(rbind, strsplit(names(thetahat), "_"))
-      vars <- var_level[,1]
+      variables <- var_level[,1]
       levels <- as.numeric(var_level[,2])
 
       # Order by variable, then level
-      var_num <- as.numeric(sub(.variable_prefix, "", vars))
+      var_num <- as.numeric(sub(.variable_prefix, "", variables))
       ## so the variable name should begin with `.variable_prefix`
 
       # Get the ordering index

@@ -179,8 +179,6 @@ ipw_single_effect_regression_binary <-
                                        mu2=mu2,
                                        residual_variance=residual_variance)
 
-    # print(paste0("maxEb", max(alpha * mu)))
-
     return(list(alpha = alpha,      # posterior inclusion probability
                 mu = mu,            # posterior mean
                 mu2 = mu2,          # posterior second moment

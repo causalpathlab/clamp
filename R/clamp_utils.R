@@ -397,33 +397,41 @@ clamp_get_pip = function (res, prune_by_cs = FALSE, prior_tol = 1e-9) {
 
     if (is.null(res$variable_alpha)) {  #if non-hierarchical PIP
       level_names <- colnames(res$alpha)
-      var_names <- sub("_.*", "", colnames(res$alpha))
+      variable_names <- sub("_.*", "", colnames(res$alpha))
 
       # now extract relevant rows from alpha matrix
       if (length(include_idx) > 0)
         res = res$alpha[include_idx,,drop = FALSE]
       else
         res = matrix(0,1,ncol(res$alpha))
+
+      level_pip <- as.vector(1 - apply(1 - res,2,prod))
+      names(level_pip) <- level_names
+
+      variable_pip <- tapply(level_pip, variable_names,
+                             function(x) {1 - prod(1-x)})
+      names(variable_pip) <- unique(variable_names)
     }
     else { # if hierarchical PIP
       level_names <- colnames(res$alpha)
-      var_names <- colnames(res$variable_alpha)
-      if (length(include_idx) > 0)
-        res = res$variable_alpha[include_idx,,drop=FALSE]
+      variable_names <- colnames(res$variable_alpha)
+      if (length(include_idx) > 0) {
+        # res = res$variable_alpha[include_idx,,drop=FALSE]
+        level_pip <- as.vector(1 - apply(1 - res$alpha[include_idx,,drop=F],
+                                         2, prod))
+        names(level_pip) <- level_names
+
+        variable_pip <-
+          as.vector(1 - apply(1 - res$variable_alpha[include_idx,,drop=F],
+                              2, prod))
+        names(variable_pip) <- variable_names
+        variable_pip <- unique(variable_pip)
+      }
       else
         res = matrix(0,1,ncol(res$variable_alpha))
     }
 
-    print(length(var_names))
-
-    level_pip <- as.vector(1 - apply(1 - res,2,prod))
-    names(level_pip) <- level_names
-
-    variable_pip <- tapply(level_pip, var_names, function(x) {1 - prod(1-x)})
-    names(variable_pip) <- unique(var_names)
-
-    return(list(level_pip = level_pip,
-                variable_pip = variable_pip))
+    return(list(level_pip = level_pip, variable_pip = variable_pip))
 
   }
 

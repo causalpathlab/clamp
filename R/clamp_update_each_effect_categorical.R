@@ -168,10 +168,13 @@ clamp_update_each_effect_categorical <- function (X, y, s, W=NULL,
                                      s$alpha[l,] * s$mu[l,])
 
       } else { ## hierarchical_pip is applied
+        variable_name <-
+          sub("_.*", "", colnames(X[,K_minus_1_dummy_indices, drop=F]))
 
         # sum level-wise PIP values (s$alpha) by variables
         # and propagate them to all levels
-        s$variable_alpha[l,] <- tapply(s$alpha[l,], vars, sum)[vars]
+        s$variable_alpha[l,] <-
+          tapply(s$alpha[l,], variable_name, sum)[variable_name]
         # update the current residual
         current_R <- Rl - compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
                                      s$variable_alpha[l,] * s$mu[l,])

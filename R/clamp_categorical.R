@@ -385,12 +385,12 @@ clamp_categorical <- function (X, y,
   ##============= when hierarchical_pip = TRUE ==============##
   if (hierarchical_pip) {
     # extract variable names
-    vars <- sub("_.*", "", colnames(X[,K_minus_1_dummy_indices, drop=F]))
+    variable_name <- sub("_.*", "", colnames(X[,K_minus_1_dummy_indices, drop=F]))
     # initialize variable-wise PIP (variable_alpha)
-    s$variable_alpha <- matrix(1/length(unique(vars)),
+    s$variable_alpha <- matrix(1/length(unique(variable_name)),
                                nrow = maxL,
                                ncol = length(K_minus_1_dummy_indices))
-    colnames(s$variable_alpha) <- vars
+    colnames(s$variable_alpha) <- variable_name
   } else {
     # name level-wise PIP (alpha)
     colnames(s$alpha) <- colnames(X)[K_minus_1_dummy_indices]

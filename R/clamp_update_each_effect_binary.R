@@ -163,7 +163,6 @@ clamp_update_each_effect_binary <- function (X, y, s, W=NULL,
     }
 
     s$Xr <- compute_Xb(X, colSums(s$alpha * s$mu))  # update linear predictor
-    # print(sum(s$Xr^2))
   }
 
   return(s)

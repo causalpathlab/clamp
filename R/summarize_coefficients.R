@@ -6,7 +6,7 @@
 #'
 #' @param object a clamp fit
 #'
-#' @param subset_vars an array of numeric indices or variable names
+#' @param subset_variables an array of numeric indices or variable names
 #'    presented in the output. If \code{var_names = NULL},
 #'    by default the output contains coefficients of all variables
 #'    if \code{ncol(X)<= 10} or \code{top_n} variables with highest PIPs
@@ -27,7 +27,7 @@
 #'    if \code{digits == NULL}, the output will not be rounded.
 #'
 #' @returns The function outputs a data.frame with \code{top_n} variables with
-#'    the highest PIPs, or variables specified in \code{vars}.
+#'    the highest PIPs, or variables specified in \code{variables}.
 #'    Variables are sorted in decreasing order of PIP values.
 #'    The data.frame contains \emph{variable name}, \emph{PIP},
 #'    \emph{posterior mean} (\code{PostMean}),
@@ -42,7 +42,7 @@
 #'
 #' @export
 #'
-summarize_coefficients <- function(object, subset_vars = NULL,
+summarize_coefficients <- function(object, subset_variables = NULL,
                                       decreasing = TRUE,
                                       top_n = 10,
                                       cred_int = TRUE,
@@ -77,7 +77,7 @@ summarize_coefficients <- function(object, subset_vars = NULL,
 
 
   out <- out[order(out$PIP, abs(out$PostMean), decreasing = decreasing), ]
-  if (is.null(subset_vars)) {
+  if (is.null(subset_variables)) {
     if (!is.null(digits)) {
       print.data.frame(cbind(variable = out[1:min(top_n, length(object$pip)), 1],
                              round(out[1:min(top_n, length(object$pip)),
@@ -88,11 +88,11 @@ summarize_coefficients <- function(object, subset_vars = NULL,
 
   } else {
     if (!is.null(digits)) {
-      print.data.frame(cbind(variable = out[out[, 1] %in% subset_vars, 1],
-                             round(out[out[, 1] %in% subset_vars,
+      print.data.frame(cbind(variable = out[out[, 1] %in% subset_variables, 1],
+                             round(out[out[, 1] %in% subset_variables,
                                        2:ncol(out)], digits)), row.names = F)
     } else {
-      print.data.frame(out[out[, 1] %in% subset_vars, ], row.names = F)
+      print.data.frame(out[out[, 1] %in% subset_variables, ], row.names = F)
     }
   }
 
