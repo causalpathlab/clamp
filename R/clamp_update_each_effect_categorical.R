@@ -54,7 +54,6 @@
 clamp_update_each_effect_categorical <- function (X, y, s, W=NULL,
                   causal_effect_estimator = c("mHT"),
                   variance_estimator = c("bootstrap"),
-                  hierarchical_pip = FALSE,
                   nboots = 100,
                   seed = NULL,
                   estimate_prior_variance = FALSE,
@@ -130,13 +129,8 @@ clamp_update_each_effect_categorical <- function (X, y, s, W=NULL,
     for (l in 1:L) {
 
       ## residuals belonging to layer l
-      if (!hierarchical_pip) {
-        Rl <- current_R + compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
-                                     s$alpha[l,]*s$mu[l,])
-      } else {
-        Rl <- current_R + compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
-                                     s$variable_alpha[l,]*s$mu[l,])
-      }
+      Rl <- current_R + compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
+                                   s$alpha[l,]*s$mu[l,])
 
       ## fit the causal single effect regression model
       res <- causal_single_effect_regression(y=Rl, X=X,  ## drop "_sub"
@@ -163,34 +157,14 @@ clamp_update_each_effect_categorical <- function (X, y, s, W=NULL,
       s$logBF_variable[l,] = res$logBF
 
       # Update the current residuals
-      if (!hierarchical_pip) { ## traditional way
-        current_R <- Rl - compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
-                                     s$alpha[l,] * s$mu[l,])
-
-      } else { ## hierarchical_pip is applied
-        variable_name <-
-          sub("_.*", "", colnames(X[,K_minus_1_dummy_indices, drop=F]))
-
-        # sum level-wise PIP values (s$alpha) by variables
-        # and propagate them to all levels
-        s$variable_alpha[l,] <-
-          tapply(s$alpha[l,], variable_name, sum)[variable_name]
-        # update the current residual
-        current_R <- Rl - compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
-                                     s$variable_alpha[l,] * s$mu[l,])
-      }
+      current_R <- Rl - compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
+                                   s$alpha[l,] * s$mu[l,])
 
     }
 
     # update linear predictor
-    if (!hierarchical_pip) {
-      s$Xr <- compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
-                         colSums(s$alpha * s$mu))
-    } else {
-      s$Xr <- compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
-                         colSums(s$variable_alpha, s$mu))
-    }
-
+    s$Xr <- compute_Xb(X[,K_minus_1_dummy_indices, drop=F],
+                       colSums(s$alpha * s$mu))
   }
 
   return(s)

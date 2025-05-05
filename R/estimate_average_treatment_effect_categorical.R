@@ -22,8 +22,8 @@
 #'  baseline levels.}
 #'  \item{deltahat}{a named vector of average treatment effect estimates.}
 #'
-#' @importFrom matrixStats weightedSd  ## not used
-#' @importFrom stats weighted.mean     ## not used
+#' @importFrom matrixStats weightedSd
+#' @importFrom stats weighted.mean
 #' @importFrom reshape2 dcast
 #' @importFrom reshape2 melt
 #'

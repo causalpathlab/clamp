@@ -217,8 +217,6 @@
 clamp_categorical <- function (X, y,
                    W = NULL, ## IPW matrix, should be of same size of X
                    maxL = min(10,ncol(X)),
-                   hierarchical_pip = FALSE,
-                   # family = "linear",
                    scaled_prior_variance = 0.2,
                    residual_variance = NULL,
                    prior_inclusion_prob = NULL,
@@ -303,21 +301,13 @@ clamp_categorical <- function (X, y,
     X <- fastDummies::dummy_cols(X,
                                  remove_first_dummy = F,
                                  remove_selected_columns = T)
+    X <- as.matrix(X)
 
-    ## If not applying hierarchical_PIP method, i.e., treating each column of X
-    ## as a independent variable, then maxL needs to be enlarged accordingly.
-    if (!hierarchical_pip) {
-      maxL <- maxL * round(ncol(X) / pvars - 1)
-    }
-
-  } else {
-    # If X is one-hot encoded, then maxL may need to be adjusted accordingly
-    if (hierarchical_pip) {
-      # if hierarchical_pip, maxL = pvars
-      maxL <- pvars
-    }
+    ## maxL needs to be enlarged accordingly.
+    maxL <- maxL * round(ncol(X) / pvars - 1)
 
   }
+
   ## X is the one-hot encoded version hereinafter.
   K_minus_1_dummy_indices <- which(!grepl("_0", colnames(X)))
   plevels <- length(K_minus_1_dummy_indices)
@@ -331,9 +321,9 @@ clamp_categorical <- function (X, y,
     # When applying the modified Horvitz-Thompson estimator,
     # the input X and response Y does not need to be scaled.
     # Each entry of X should be either 0 or 1.
-    out = compute_colstats(X, center = F, scale = F)
+    out = compute_colstats(X, center = intercept, scale = F)
   }
-  # else if (mle_estimator == "WLS") {
+  # else if (causal_effect_estimator == "WLS") {
   #   out = compute_colstats(X, W, center = intercept, scale = standardize)
   # }
   # Set three attributes for matrix X: attr(X,'scaled:center') is a
@@ -350,7 +340,7 @@ clamp_categorical <- function (X, y,
   ## attr(X, "d") is applied when computing ERSS (`get_ER2()`), which is
   ## to estimate the residual variance.
   ## It seems that the squared X should not be weighted?!
-  attr(X, "d") = out$d
+  # attr(X, "d") = out$d
 
   if (intercept) {  ## do not affect the estimation of beta
     mean_y = mean(y)
@@ -380,23 +370,10 @@ clamp_categorical <- function (X, y,
                   varY = as.numeric(var(y)),
                   standardize = standardize)
   s <- init_finalize(s)
+  # name level-wise PIP (alpha)
+  colnames(s$alpha) <- colnames(X)[K_minus_1_dummy_indices]
 
-  ##============= Initialize component: variable_alpha ======||
-  ##============= when hierarchical_pip = TRUE ==============##
-  if (hierarchical_pip) {
-    # extract variable names
-    variable_name <- sub("_.*", "", colnames(X[,K_minus_1_dummy_indices, drop=F]))
-    # initialize variable-wise PIP (variable_alpha)
-    s$variable_alpha <- matrix(1/length(unique(variable_name)),
-                               nrow = maxL,
-                               ncol = length(K_minus_1_dummy_indices))
-    colnames(s$variable_alpha) <- variable_name
-  } else {
-    # name level-wise PIP (alpha)
-    colnames(s$alpha) <- colnames(X)[K_minus_1_dummy_indices]
-  }
-
-
+  ##============= Initialize convergence condition ===============##
   # Initialize elbo to NA.
   elbo = rep(as.numeric(NA),max_iter + 1)
   elbo[1] = -Inf;
@@ -418,7 +395,6 @@ clamp_categorical <- function (X, y,
     s <- clamp_update_each_effect_categorical(X = X, y = y, s = s, W = W,
                           causal_effect_estimator = causal_effect_estimator,
                           variance_estimator = variance_estimator,
-                          hierarchical_pip = hierarchical_pip,
                           nboots = nboots,
                           seed = seed,
                           estimate_prior_variance = estimate_prior_variance,
@@ -427,21 +403,6 @@ clamp_categorical <- function (X, y,
                           abnormal_proportion = abnormal_proportion,
                           robust_method = robust_method,
                           robust_estimator = robust_estimator)
-
-    # Estimate intercept.
-    if (intercept) {
-      if (!hierarchical_pip) {  # if not applying hierarchical PIP
-        s$intercept <- mean_y -
-          mean(X[, K_minus_1_dummy_indices, drop=F]
-               %*% as.matrix(colSums(s$alpha * s$mu)))
-      } else {  # if applying hierarchical PIP
-        s$intercept <- mean_y -
-          mean(X[, K_minus_1_dummy_indices, drop=F]
-               %*% as.matrix(colSums(s$variable_alpha * s$mu)))
-      }
-    } else {
-      s$intercept <- 0
-    }
 
     elbo[tt+1]   = get_elbo(X, y, s)
     loglik[tt+1] = Eloglik(X, y, s)
@@ -491,6 +452,15 @@ clamp_categorical <- function (X, y,
 
   }
 
+  # Estimate intercept.
+  if (intercept) {
+    s$intercept <- mean_y -
+      mean(X[, K_minus_1_dummy_indices, drop=F]
+           %*% as.matrix(colSums(s$alpha * s$mu)))
+  } else {
+    s$intercept <- 0
+  }
+
   # Remove first (infinite) entry, and trailing NAs.
   elbo = elbo[2:(tt+1)]
   s$elbo = elbo
@@ -505,8 +475,8 @@ clamp_categorical <- function (X, y,
   }
 
   s$fitted <- s$Xr + s$intercept
-  s$fitted = drop(s$fitted)
-  names(s$fitted) = `if`(is.null(names(y)),rownames(X),names(y))
+  s$fitted <- drop(s$fitted)
+  names(s$fitted) <- `if`(is.null(names(y)),rownames(X),names(y))
 
   if (track_fit)
     s$trace = tracking
@@ -514,20 +484,24 @@ clamp_categorical <- function (X, y,
   # Credible Sets and PIPs
   if (!is.null(coverage) && !is.null(min_abs_corr)) {
     ## Use the original X to calculate the correlation between variables.
-    s$sets = clamp_get_cs(s,coverage = coverage,X = X_original,
+    s$sets = clamp_get_cs(s,coverage = coverage, X = X_original,
                                   min_abs_corr = min_abs_corr,
                                   n_purity = n_purity)
-    s$pip = clamp_get_pip(s,prune_by_cs = FALSE,prior_tol = prior_tol)
+    pips <- clamp_get_pip(s, prune_by_cs = FALSE, prior_tol = prior_tol)
+    s$level_pip    <- pips$level_pip
+    s$variable_pip <- pips$variable_pip
+    names(s$level_pip)    <- names(pips$level_pip)
+    names(s$variable_pip) <- names(pips$variable_pip)
   }
 
   # (Re)name the outputs
-  variable_names             <- colnames(X[,K_minus_1_dummy_indices])
-  # names(s$pip)               <- variable_names
-  colnames(s$alpha)          <- variable_names
-  colnames(s$mu)             <- variable_names
-  colnames(s$mu2)            <- variable_names
-  colnames(s$deltahat)       <- variable_names
-  colnames(s$logBF_variable) <- variable_names
+  level_names             <- colnames(X[,K_minus_1_dummy_indices])
+  # names(s$level_pip)         <- level_names
+  colnames(s$alpha)          <- level_names
+  colnames(s$mu)             <- level_names
+  colnames(s$mu2)            <- level_names
+  colnames(s$deltahat)       <- level_names
+  colnames(s$logBF_variable) <- level_names
 
   # For prediction.
   # s$X_column_scale_factors  <- attr(X,"scaled:scale")

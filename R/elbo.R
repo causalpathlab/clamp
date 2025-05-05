@@ -1,7 +1,6 @@
 # @title Get objective function from data and clamp fit object.
 # @keywords internal
 
-#' @importFrom matrixStats colSums2
 #' @importFrom Matrix tcrossprod
 #' @importFrom Matrix crossprod
 
@@ -29,6 +28,7 @@ get_elbo = function(X, y, s) {
 #' @param pie       a  p-dim vector, prior inclusion probabilities
 #' @param prior_varD an L-dim vector, prior variance of Beta (one for each layer)
 #'
+#' @keywords internal
 reverseKL_va_vs_prior <- function(alpha, post_varD, mu, pie, prior_varD) {
 
   rowSums(
@@ -48,24 +48,27 @@ Eloglik <- function(X, y, s) {
 
 # Expected residual sum of squares
 # input X should be the K minus 1 dummy encoding version
+#'
+#' @importFrom matrixStats colSums2
+#'
 get_ERSS <- function(X, y, s) {
 
-  if (is.null(s$variable_alpha)) { ## not hieraracical PIP approach.
-    postd  <- s$alpha * s$mu   ## n by pcoef matrix
-    postd2 <- s$alpha * s$mu2  ## n by pcoef matrix
-  } else {
-    postd  <- s$variable_alpha * s$mu
-    postd2 <- s$variable_alpha * s$mu2
-  }
+  postd  <- s$alpha * s$mu   ## n by pcoef matrix
+  postd2 <- s$alpha * s$mu2  ## n by pcoef matrix
 
   K_minus_1_dummy_indices <- attr(X, "K_minus_1_dummy_indices")
   if (ncol(postd) != length(K_minus_1_dummy_indices)) {
     stop("Column dimension of X does not match!")
   }
 
-  res <- sum((y - s$Xr - s$intercept)^2) +
-    sum( tcrossprod(colSums2(X[, K_minus_1_dummy_indices, drop=F]^2), postd2) )-
-    sum( (tcrossprod(X[, K_minus_1_dummy_indices, drop=F], postd))^2 )
+  X_K_minus_1_scaled_center <- attr(X, "scaled:center")[K_minus_1_dummy_indices]
+  X_K_minus_1_centralized <-
+    sweep(X[, K_minus_1_dummy_indices, drop=F], 2, X_K_minus_1_scaled_center, "-")
+
+  res <- sum( (y - s$Xr -
+              mean(y) + sum( postd %*% as.matrix(X_K_minus_1_scaled_center) ) )^2 ) +
+    sum( tcrossprod(colSums2(X_K_minus_1_centralized^2), postd2) )-
+    sum( (tcrossprod(X_K_minus_1_centralized, postd))^2 )
 
   return(res)
 }
