@@ -427,7 +427,8 @@ clamp_get_pip = function (res, prune_by_cs = FALSE, prior_tol = 1e-9) {
 
     variable_pip <- tapply(level_pip, variable_names,
                            function(x) {1 - prod(1-x)})
-    names(variable_pip) <- unique(variable_names)
+    variable_pip <- variable_pip[
+      order( as.numeric(sub("X", "", names(variable_pip))) )]
 
     return(list(level_pip = level_pip, variable_pip = variable_pip))
 
