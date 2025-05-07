@@ -411,6 +411,8 @@ clamp_categorical <- function (X, y,
       print(paste("#iteration:", tt,
                   "; objective:", round(elbo[tt+1], 2),
                   "; loglik:", round(loglik[tt+1], 2)))
+      print("Posterior Means:")
+      print(round(colSums(s$alpha * s$mu), 2))
     }
 
     ## Convergence condition
@@ -449,6 +451,7 @@ clamp_categorical <- function (X, y,
       if (s$sigma2 > residual_variance_upperbound)
         s$sigma2 <- residual_variance_upperbound
     }
+    # print(s$sigma2)
 
   }
 
