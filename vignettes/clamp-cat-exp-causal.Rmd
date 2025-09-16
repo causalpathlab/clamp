@@ -23,17 +23,54 @@ library(data.table)
 data.dir <- "~/Documents/research/data/genotype/"
 ```
 
+```{r, message=F, warning=F}
+## for plots
+library(tidyverse)
+myPalette2 <- c("#E69F00", "#999999", "#00757F")
+myPalette3 <- c("dodgerblue2", "green4", "#6A3D9A", "#FF7F00", 
+        "gold1", "skyblue2", "#FB9A99", "palegreen2", "#CAB2D6", 
+        "#FDBF6F", "gray70", "khaki2", "maroon", "orchid1", "deeppink1", 
+        "blue1", "steelblue4", "darkturquoise", "green1", "yellow4", 
+        "yellow3", "darkorange4", "brown")
+plot_select_results <- function(vals, effect_idx, cs_list = NULL) {
+  tibble(vals = vals) %>%
+    mutate(id = 1 : n()) %>%
+    mutate(true_label = if_else(id %in% effect_idx, "causal", "noncausal")) %>%
+    arrange(desc(true_label)) %>%
+    ggplot(aes(x = id, y = vals, color = as.factor(true_label))) +
+    geom_point(size = 3) +
+    scale_color_manual(values = myPalette2[1:2]) +
+    labs(x = "variable", color = "") +
+    theme_classic()
+}
 
-## Toy example: Two causal exposures
+# tab <- tibble(vals = vals) %>%
+#   mutate(id = 1 : n(), cs = -1) %>% 
+#   mutate(true_label = if_else(id %in% effect_idx, "causal", "noncausal")) %>%
+#   arrange(desc(true_label))
+# 
+# for (i in seq_along(cs_list)) {
+#   tab$cs[tab$id %in% cs_list[[i]]] <- i
+# }
+# 
+# ggplot(data = tab) + 
+#   geom_point(aes(x = id, y = vals, 
+#                  color = as.factor(true_label), 
+#                  shape = factor(cs)), size = 3) +
+#   scale_color_manual(values = myPalette2[1:2]) +
+#   scale_shape_manual()
+```
+
+## Toy example: One causal exposures
 
 ```{r}
-set.seed(12345)
-n <- 1000
-p <- 10
+set.seed(123)
+n <- 500
+p <- 20
 K <- 3  ## 3-level categorical variable.
 
 # confounder
-U <- rnorm(n, mean = 0.5)
+U <- rnorm(n, mean = 0.2)
 
 # potential outcomes
 eps <- rnorm(n)
@@ -101,7 +138,7 @@ corrplot::corrplot(cor(X_original), method = 'number')
 ############################################
 # observed outcome
 # effect_ind <- sample(1:p, size = 3)
-effect_ind <- c(5)
+effect_ind <- c(4)
 # Y <- 
 #   X[,(effect_ind[1] - 1) * K + 1] * f1func(0, U) +
 #   X[,(effect_ind[1] - 1) * K + 2] * f1func(1, U) +
@@ -114,7 +151,7 @@ effect_ind <- c(5)
   # X[,(effect_ind[3] - 1) * K + 3] * f3func(2, U) + eps
 
 Y <- X_original[,effect_ind, drop=F] %*% 
-  as.matrix(rep(1, times = length(effect_ind))) + U + eps
+  as.matrix(rep(1, times = length(effect_ind))) + 5*U + eps
 ```
 
 ### Step 0: estimate propensity scores
@@ -125,9 +162,7 @@ Y <- X_original[,effect_ind, drop=F] %*%
   ifelse(.val < .alpha, .alpha,
          ifelse(.val > (1-.alpha), 1-.alpha, .val))
 }
-```
 
-```{r}
 ## Robust approach 2: balancing weight
 
 ### Option 1: overlap weighting
@@ -164,27 +199,27 @@ ProbPred_integrated <- sapply(unique(variable_names), function(var){
     rowSums(ProbPred_integrated[, variable_names == var, drop=F])
   })
 
-par(mfrow = c(3, 4))  # create a 3 x 3 plotting matrix
-for (j in 1 : ncol(X_original)) {
-  plot(X_original[,j], ProbPred_integrated[,j],
-       xlab = paste0("X", j), ylab = paste0("estimated propensity"))
-}
+# par(mfrow = c(3, 4))  # create a 3 x 3 plotting matrix
+# for (j in 1 : ncol(X_original)) {
+#   plot(X_original[,j], ProbPred_integrated[,j],
+#        xlab = paste0("X", j), ylab = paste0("estimated propensity"))
+# }
 ```
 
 ```{r}
-# W <- 1 / .clipped(ProbPred)
-W <- 1 / ProbPred * .overlap_weighting_g(ProbPred)
+W <- 1 / .clipped(ProbPred)
+# W <- 1 / ProbPred * .overlap_weighting_g(ProbPred)
 # W <- 1 / ProbPred * .entropy_weighting_g(ProbPred)
 
-par(mfrow = c(4, 3))
-for (j in 1 : ncol(X_original)) {
-  # plot(X_original[,j], .overlap_weighting_g(ProbPred_integrated[,j]),
-  #      xlab = paste0("X", j), ylab = paste0("OW"))
-  plot(X_original[,j], 1/ProbPred_integrated[,j] *.overlap_weighting_g(ProbPred_integrated[,j]),
-       xlab = paste0("X", j), ylab = paste0("OW"))
-  # plot(X_original[,j], .entropy_weighting_g(ProbPred_integrated[,j]),
-  #      xlab = paste0("X", j), ylab = paste0("EW"))
-}
+# par(mfrow = c(3, 4))
+# for (j in 1 : ncol(X_original)) {
+#   # plot(X_original[,j], .overlap_weighting_g(ProbPred_integrated[,j]),
+#   #      xlab = paste0("X", j), ylab = paste0("OW"))
+#   plot(X_original[,j], 1/ProbPred_integrated[,j] *.overlap_weighting_g(ProbPred_integrated[,j]),
+#        xlab = paste0("X", j), ylab = paste0("OW"))
+#   # plot(X_original[,j], .entropy_weighting_g(ProbPred_integrated[,j]),
+#   #      xlab = paste0("X", j), ylab = paste0("EW"))
+# }
 ```
 
 
@@ -206,18 +241,61 @@ clamp_summarize_coefficients(res_cl)
 summary(res_cl)
 ```
 
-
+```{r}
+plot_select_results(res_cl$variable_pip, effect_ind) +
+  scale_x_continuous(breaks = seq(1, 10), 
+                     labels = paste0("X", as.character(1:10))) + 
+  ylab("variable-wise PIP")
+```
 
 ```{r}
-resY <- residuals(lm(Y ~ U))
-res_su <- susieR::susie(X_original, resY, L = 5, max_iter = 500)
-res_su$pip
-susieR::summary.susie(res_su)
+level_names <- paste0(rep(1:10, each = 2), "_", 1:2)
+plot_select_results(res_cl$level_pip, (2*effect_ind-1):(2*effect_ind)) + 
+  scale_x_continuous(breaks = seq(1:20), 
+                     labels = paste0("X", level_names)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) + 
+  ylab("level-wise PIP") + 
+  xlab("variable_level")
 ```
 
 
 ```{r}
-# rm(list = ls(all.names = TRUE))
+resY <- residuals(lm(Y ~ U))
+res_su <- susieR::susie(X_original, resY, L = 5)
+plot(res_su$pip)
+susieR::summary.susie(res_su)
+```
+
+```{r}
+plot_select_results(res_su$pip, effect_ind) +
+  scale_x_continuous(breaks = seq(1, 10), 
+                     labels = paste0("X", as.character(1:10))) + 
+  ylab("variable-wise PIP")
+
+```
+
+
+
+```{r}
+res_su0 <- susieR::susie(X_original, Y, L = 5)
+plot(res_su0$pip)
+susieR::summary.susie(res_su0)
+```
+
+```{r}
+plot_select_results(res_su0$pip, effect_ind) +
+  scale_x_continuous(breaks = seq(1, 10), 
+                     labels = paste0("X", as.character(1:10))) + 
+  ylab("variable-wise PIP")
+```
+
+
+
+```{r}
+res_la <- glmnet::cv.glmnet(X_original, Y, family = "gaussian", alpha = 1)
+plot_select_results(abs(as.numeric(coef(res_la, s = "lambda.min"))[-1]), 
+                    effect_idx = effect_ind) +
+  ylab("|coefficients|")
 ```
 
 
