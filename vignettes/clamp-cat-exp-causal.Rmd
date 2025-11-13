@@ -1,0 +1,445 @@
+---
+title: "Finding causal categorical variables using CLAMP"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{clamp-cat-exp-causal}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup, include=FALSE}
+devtools::load_all(".")
+# library(clamp)
+library(nnet)
+library(data.table)
+
+data.dir <- "~/Documents/research/data/genotype/"
+```
+
+```{r, message=F, warning=F}
+## for plots
+library(tidyverse)
+myPalette2 <- c("#E69F00", "#999999", "#00757F")
+myPalette3 <- c("dodgerblue2", "green4", "#6A3D9A", "#FF7F00", 
+        "gold1", "skyblue2", "#FB9A99", "palegreen2", "#CAB2D6", 
+        "#FDBF6F", "gray70", "khaki2", "maroon", "orchid1", "deeppink1", 
+        "blue1", "steelblue4", "darkturquoise", "green1", "yellow4", 
+        "yellow3", "darkorange4", "brown")
+plot_select_results <- function(vals, effect_idx, cs_list = NULL) {
+  tibble(vals = vals) %>%
+    mutate(id = 1 : n()) %>%
+    mutate(true_label = if_else(id %in% effect_idx, "causal", "noncausal")) %>%
+    arrange(desc(true_label)) %>%
+    ggplot(aes(x = id, y = vals, color = as.factor(true_label))) +
+    geom_point(size = 3) +
+    scale_color_manual(values = myPalette2[1:2]) +
+    labs(x = "variable", color = "") +
+    theme_classic()
+}
+
+# tab <- tibble(vals = vals) %>%
+#   mutate(id = 1 : n(), cs = -1) %>% 
+#   mutate(true_label = if_else(id %in% effect_idx, "causal", "noncausal")) %>%
+#   arrange(desc(true_label))
+# 
+# for (i in seq_along(cs_list)) {
+#   tab$cs[tab$id %in% cs_list[[i]]] <- i
+# }
+# 
+# ggplot(data = tab) + 
+#   geom_point(aes(x = id, y = vals, 
+#                  color = as.factor(true_label), 
+#                  shape = factor(cs)), size = 3) +
+#   scale_color_manual(values = myPalette2[1:2]) +
+#   scale_shape_manual()
+```
+
+## Toy example: One causal exposures
+
+```{r}
+set.seed(123)
+n <- 500
+p <- 20
+K <- 3  ## 3-level categorical variable.
+
+# confounder
+U <- rnorm(n, mean = 0.2)
+
+# potential outcomes
+eps <- rnorm(n)
+
+# When mean(U) = 0.5
+# ============ f1 ============
+f1func <- function(.x, .u) return(.x + .u + .x*.u)
+## E[f1(0,U)] = 0.5; E[f1(1,U)] = 2; E[f1(2,U)] = 3.5
+## Delta1 = 1.5; Delta2 = 3
+# ============ f2 ============
+f2func <- function(.x, .u) return(2*(.x - 0.8*.u))
+## (E[f2(0,U)] = -0.4; E[f2(1,U)] = 0.6; E[f2(2,U)] = 1.6)*2
+## Delta1 = 2; Delta2 = 4
+# ============ f3 ============
+f3func <- function(.x, .u) return(-.x^2 + .u)
+## E[f3(0,U)] = 0.5, E[f3(1,U)] = -0.5, E[f3(2,U)] = -3.5
+## (Delta1 = -1, Delta2 = -4)
+
+# treatment assignment: multinomial logistic regression (softmax)
+## .lp: matrix of linear predictors (s). It should contain (K-1) columns, and each column is an n-vector of the linear predictors of the k-th level (1 <= k < K)
+softmax <- function(.lp) {
+  K <- length(.lp) + 1  ## number of levels
+  
+  exp.s <- apply(.lp, 2, exp)  ## exp(LinearPredictor), n by (K-1)
+  Z <- rowSums(exp.s) + 1  ## denominator
+  
+  prob.mat <- cbind(1, exp.s) / Z
+  return(prob.mat)
+}
+
+xi.matrix <- matrix(nrow = 2, ncol = p*(K-1))
+# 1st row: intercepts
+# 2nd row: slopes of U
+intercepts_base <- 0
+slopes <- seq(from = -10, to = -2, length.out = p*(K-1))
+slopes_eps <- rnorm(n=length(slopes), sd = 0.1)
+xi.matrix[1,] <- intercepts_base
+xi.matrix[2,] <- slopes + slopes_eps
+LinearPred <- apply(xi.matrix, 2, function(x) x[1] + x[2]*U)
+X <- matrix(NA)
+for (j in 1 : p) {
+  probs <- softmax(LinearPred[, ((j-1)*(K-1)+1) : (j*(K-1)) , drop=F])
+  Xj <- t(apply(probs, 1, function(pr) {rmultinom(1, 1, prob = pr)})) ## n by K
+  
+  if (sum(is.na(X))) {
+    X <- Xj
+  } else { 
+      X <- cbind(X, Xj) 
+  }
+}
+colnames(X) <- paste0(rep(paste0("X", 1:p, "_"), each = K), 0:(K-1))
+X <- apply(X, 2, as.double)
+
+## Turn it into a n by p matrix with entries 0, 1, 2
+X_original <- sweep(X, 2, as.vector(rep(1:K, times = p)), "*")
+variable_names <- sub("_.*", "", colnames(X_original))
+X_original <- sapply(unique(variable_names), function(v) {
+  rowSums(X_original[, variable_names == v, drop=F])
+})
+X_original <- X_original - 1
+head(X_original)
+corrplot::corrplot(cor(X_original), method = 'number')
+
+
+############################################
+# observed outcome
+# effect_ind <- sample(1:p, size = 3)
+effect_ind <- c(4)
+# Y <- 
+#   X[,(effect_ind[1] - 1) * K + 1] * f1func(0, U) +
+#   X[,(effect_ind[1] - 1) * K + 2] * f1func(1, U) +
+#   X[,(effect_ind[1] - 1) * K + 3] * f1func(2, U) +
+#   X[,(effect_ind[2] - 1) * K + 1] * f2func(0, U) +
+#   X[,(effect_ind[2] - 1) * K + 2] * f2func(1, U) +
+#   X[,(effect_ind[2] - 1) * K + 3] * f2func(2, U) + eps
+  # X[,(effect_ind[3] - 1) * K + 1] * f3func(0, U) +
+  # X[,(effect_ind[3] - 1) * K + 2] * f3func(1, U) +
+  # X[,(effect_ind[3] - 1) * K + 3] * f3func(2, U) + eps
+
+Y <- X_original[,effect_ind, drop=F] %*% 
+  as.matrix(rep(1, times = length(effect_ind))) + 5*U + eps
+```
+
+### Step 0: estimate propensity scores
+
+```{r}
+## Robust approach 1: IPW truncation
+.clipped <- function(.val, .alpha = 0.05) {
+  ifelse(.val < .alpha, .alpha,
+         ifelse(.val > (1-.alpha), 1-.alpha, .val))
+}
+
+## Robust approach 2: balancing weight
+
+### Option 1: overlap weighting
+.overlap_weighting_g <- function(.e) { .e * (1 - .e) }
+
+### Option 2: Entropy weighting
+.entropy_weighting_g <- function(.e) {-(.e * .loge(.e) + (1-.e) * .loge(1-.e) )}
+```
+
+
+
+```{r}
+## estimated confounder
+# Uhat <- rsvd::rsvd(X_original, k = 3)$u
+  
+# require(nnet)
+ProbPred <- matrix(nrow = nrow(X), ncol = ncol(X)) ## same size as X
+col_indices <- colnames(X)
+for (j in 1 : p) {
+  jcols <- grepl(paste0("X", as.character(j), "_"), col_indices)
+  Xj <- X[, jcols, drop=F]
+  # mn.fit <- multinom(Xj ~ Uhat)
+  mn.fit <- multinom(Xj ~ U)
+  ProbPred[, jcols] <- predict(mn.fit, type = "probs")
+}
+colnames(ProbPred) <- colnames(X)
+```
+
+```{r}
+## Check the propensities in the specific levels
+ProbPred_integrated <- X * ProbPred
+variable_names <- sub("_.*", "", colnames(X))
+ProbPred_integrated <- sapply(unique(variable_names), function(var){
+    rowSums(ProbPred_integrated[, variable_names == var, drop=F])
+  })
+
+# par(mfrow = c(3, 4))  # create a 3 x 3 plotting matrix
+# for (j in 1 : ncol(X_original)) {
+#   plot(X_original[,j], ProbPred_integrated[,j],
+#        xlab = paste0("X", j), ylab = paste0("estimated propensity"))
+# }
+```
+
+```{r}
+W <- 1 / .clipped(ProbPred)
+# W <- 1 / ProbPred * .overlap_weighting_g(ProbPred)
+# W <- 1 / ProbPred * .entropy_weighting_g(ProbPred)
+
+# par(mfrow = c(3, 4))
+# for (j in 1 : ncol(X_original)) {
+#   # plot(X_original[,j], .overlap_weighting_g(ProbPred_integrated[,j]),
+#   #      xlab = paste0("X", j), ylab = paste0("OW"))
+#   plot(X_original[,j], 1/ProbPred_integrated[,j] *.overlap_weighting_g(ProbPred_integrated[,j]),
+#        xlab = paste0("X", j), ylab = paste0("OW"))
+#   # plot(X_original[,j], .entropy_weighting_g(ProbPred_integrated[,j]),
+#   #      xlab = paste0("X", j), ylab = paste0("EW"))
+# }
+```
+
+
+### Fit: method 1 - PIP for each variable/independent levels
+```{r}
+res_cl <- clamp_categorical(X=X_original, y=Y, W=W, 
+                            maxL = 5,
+                            max_iter = 20,
+                            nboots = 100,
+                            seed = 123, 
+                            verbose = T)
+plot(res_cl$level_pip)
+plot(res_cl$variable_pip)
+plot(res_cl$elbo, type = "o")
+plot(res_cl$loglik, type = "o")
+
+clamp_summarize_coefficients(res_cl)
+
+summary(res_cl)
+```
+
+```{r}
+plot_select_results(res_cl$variable_pip, effect_ind) +
+  scale_x_continuous(breaks = seq(1, 10), 
+                     labels = paste0("X", as.character(1:10))) + 
+  ylab("variable-wise PIP")
+```
+
+```{r}
+level_names <- paste0(rep(1:10, each = 2), "_", 1:2)
+plot_select_results(res_cl$level_pip, (2*effect_ind-1):(2*effect_ind)) + 
+  scale_x_continuous(breaks = seq(1:20), 
+                     labels = paste0("X", level_names)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) + 
+  ylab("level-wise PIP") + 
+  xlab("variable_level")
+```
+
+
+```{r}
+resY <- residuals(lm(Y ~ U))
+res_su <- susieR::susie(X_original, resY, L = 5)
+plot(res_su$pip)
+susieR::summary.susie(res_su)
+```
+
+```{r}
+plot_select_results(res_su$pip, effect_ind) +
+  scale_x_continuous(breaks = seq(1, 10), 
+                     labels = paste0("X", as.character(1:10))) + 
+  ylab("variable-wise PIP")
+
+```
+
+
+
+```{r}
+res_su0 <- susieR::susie(X_original, Y, L = 5)
+plot(res_su0$pip)
+susieR::summary.susie(res_su0)
+```
+
+```{r}
+plot_select_results(res_su0$pip, effect_ind) +
+  scale_x_continuous(breaks = seq(1, 10), 
+                     labels = paste0("X", as.character(1:10))) + 
+  ylab("variable-wise PIP")
+```
+
+
+
+```{r}
+res_la <- glmnet::cv.glmnet(X_original, Y, family = "gaussian", alpha = 1)
+plot_select_results(abs(as.numeric(coef(res_la, s = "lambda.min"))[-1]), 
+                    effect_idx = effect_ind) +
+  ylab("|coefficients|")
+```
+
+
+## Toy example 2: Genetics Dataset
+
+```{r}
+library(bigsnpr)
+`%&%` <- function(a,b) paste0(a,b)
+if.needed <- function(.files, .code) {
+  if(!all(file.exists(.files))){
+    .code
+  }
+}
+dir.create(data.dir, recursive=TRUE, showWarnings=FALSE)
+
+.bed.file <- data.dir %&% "1000G_phase3_common_norel.bed"
+if.needed(.bed.file, {
+  bigsnpr::download_1000G(data.dir)
+})
+.bk.file <- data.dir %&% "1000G_phase3_common_norel.rds"
+if.needed(.bk.file, {
+  BED <- snp_readBed(.bed.file)
+})
+dat <- snp_attach(.bk.file)
+dat.genotypes <- dat$genotypes
+rm(dat)
+```
+
+Get the population structure and treat it as the confounder. 
+
+```{r}
+pop.info.file <- data.dir %&% "1000G_phase3_common_norel.fam2"
+pop.info <- fread(pop.info.file)
+head(pop.info)
+# all(pop.info$sample.ID == dat$fam$sample.ID)
+
+# Use pop.info$`Super Population` as the confounder.
+U <- fastDummies::dummy_cols(pop.info$`Super Population`, 
+                                     remove_first_dummy = F, 
+                                     remove_selected_columns = T)
+U <- sapply(U, as.numeric)
+gamma_u <- rnorm(ncol(U), mean = 1)
+
+rm(pop.info)
+```
+
+```{r}
+nn <- nrow(dat.genotypes)
+pp <- 10
+startpoint <- 1000
+X <- dat.genotypes[1:nn, startpoint:(startpoint+pp-1)]
+colnames(X) <- paste0("X", 1:pp)
+
+# check minor allele frequencies and remove columns whose MAF <= 0.05
+MAF <- snp_MAF(dat.genotypes, ind.col = startpoint:(startpoint+pp-1))
+plot(MAF); abline(h=0.05)
+remove_snp_cols <- which(MAF <= 0.05)
+X <- X[, -remove_snp_cols, drop=F]
+dim(X)
+
+# randomly sample causal variables. 
+n_causal_vars <- 3
+causal_indices <- sort(sample(colnames(X), n_causal_vars))
+causal_effects <- rnorm(n_causal_vars)  ## Assume all additive effects
+print(data.frame(variable = causal_indices, effects = causal_effects))
+
+# generate response Y
+h2 <- 1
+esp <- rnorm(nn)
+y <- sqrt(h2) * (X[, causal_indices, drop=F] %*% as.matrix(causal_effects) 
+                 + U %*% as.matrix(gamma_u)) +
+  sqrt(1-h2) * esp
+```
+
+
+### Step 1: calculate the matrix of inverse propensity weights.
+
+
+```{r}
+# Approximate substitute confounder
+Uhat <- rsvd::rsvd(X, k = 2)$u
+
+# Expand X as one-hot version
+X_one_hot <- fastDummies::dummy_cols(apply(X, 2, as.factor), 
+                                     remove_first_dummy = F, 
+                                     remove_selected_columns = T)
+head(X_one_hot)
+X_one_hot <- apply(X_one_hot, 2, as.double)
+
+# Estimate the propensity scores
+ProbPred <- matrix(nrow = nrow(X_one_hot), ncol = ncol(X_one_hot))
+variable_names <- sub("_.*", "", colnames(X_one_hot))
+for (v in unique(variable_names)) {
+  Xj <- X_one_hot[, variable_names == v, drop=F]
+  mn.fit <- multinom(Xj ~ Uhat)
+  ProbPred[, variable_names == v] <- predict(mn.fit, type = "probs")
+}
+colnames(ProbPred) <- colnames(X_one_hot)
+
+ProbPred <- .clipped(ProbPred)
+W <- 1 / ProbPred
+```
+
+
+```{r}
+## Check the propensities in the specific levels
+ProbPred_integrated <- X_one_hot * ProbPred
+ProbPred_integrated <- sapply(unique(variable_names), function(var){
+    rowSums(ProbPred_integrated[, variable_names == var, drop=F])
+  })
+
+par(mfrow = c(3, 3))  # create a 3 x 3 plotting matrix
+for (j in 1 : ncol(X)) {
+  plot(X[,j], ProbPred_integrated[,j],
+       xlab = paste0("X", j), ylab = paste0("estimated propensity"))
+}
+```
+
+
+```{r}
+ggplot(data.frame(X = X[, 9], Uhat=Uhat), aes(x = Uhat, y = X)) +
+  geom_point() +
+  theme_bw()
+```
+
+### Step 2: fit the clamp
+
+```{r}
+X_sub <- X[, !(colnames(X) %in% c("X5", "X7", "X9"))] 
+W_sub <- W[, !sub("_.*", "", colnames(W)) %in% c("X5", "X7", "X9")]
+
+res_cl <- clamp_categorical(X=X_sub, y=y, W=W_sub, max_iter = 1,
+                            seed = 123, verbose = T)
+```
+
+```{r}
+plot(res_cl$level_pip)
+plot(res_cl$variable_pip)
+plot(res_cl$elbo, type = "o")
+
+clamp_summarize_coefficients(res_cl)
+
+summary(res_cl)
+```
+
+
+
