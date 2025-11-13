@@ -1,12 +1,13 @@
 # @title Estimate residual variance
 # Copied from susieR
-# @param X an n by p matrix of covariantes
+# @param X an n by p-levels matrix of covariates (K-1 dummy encoding version)
 # @param y an n vector of data
 # @param s a susie fit
 estimate_residual_variance_fun = function (X, y, s) {
   n = nrow(X)
 
-  return((1/n)*get_ER2(X,y,s))
+  # return((1/n)*get_ER2(X,y,s))
+  return((1/n)*get_ERSS(X, y, s))
 }
 
 # # @title Estimate residual variance for summary statistics

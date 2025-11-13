@@ -12,7 +12,7 @@ You can install the development version of clamp from [GitHub](https://github.co
 
 ``` r
 # install.packages("devtools")
-devtools::install_github("ymyuan98/clamp")
+devtools::install_github("causalpathlab/clamp")
 ```
 
 ## Example

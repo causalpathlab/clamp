@@ -13,7 +13,9 @@ RoxygenNote: 7.2.3
 Imports: 
     matrixStats,
     sandwich,
+    utils,
     stats,
+    fastDummies,
     Matrix
 Suggests: 
     knitr,

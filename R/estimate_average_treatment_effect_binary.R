@@ -23,7 +23,7 @@
 #' @importFrom stats weighted.mean
 #'
 #' @keywords internal
-estimate_average_treatment_effect <- function(X, y, W,
+estimate_average_treatment_effect_binary <- function(X, y, W,
                                               mle_estimator = c("mHT", "WLS"),
                                               standardize = NULL,
                                               centralize = NULL) {
@@ -41,7 +41,7 @@ estimate_average_treatment_effect <- function(X, y, W,
            # When applying the modified Horvitz-Thompson estimator
            # the input X and response Y do not need to be scaled.
            # Each entry of X should be either 0 or 1.
-           betahat <-  colSums( sweep(W*X, 1, y, "*") ) / colSums( W*X ) -
+           deltahat <-  colSums( sweep(W*X, 1, y, "*") ) / colSums( W*X ) -
              colSums( sweep(W*(1-X), 1, y, "*") ) / colSums( W*(1-X) )
          },
 
@@ -103,14 +103,14 @@ estimate_average_treatment_effect <- function(X, y, W,
            # Obtain weighted least-squares estimates
            wxy <- colSums(W * X_ * y_)
            wx2  <- colSums(W * X_^2)
-           betahat <- wxy / wx2
+           deltahat <- wxy / wx2
          }
          )
 
   # Return
   if ( !is.null(attr(X, "scaled:scale")) )  ## if not bootstrapping
-    return( betahat/attr(X, "scaled:scale") )
+    return( deltahat/attr(X, "scaled:scale") )
   else   ## if bootstrapping, return the estimates directly.
-    return(betahat)
+    return(deltahat)
 
 }

@@ -1,8 +1,13 @@
-#' ...
+#' @title clamp (?) for binary treatments
+#'
+#' @rdname clamp_binary
 #'
 #' @param X An n by p matrix of covariates.
 #'
 #' @param y The observed responses, a vector of length n.
+#'
+#' @param W The weight matrix of size (n by p) or a n-dim vector.
+#'   By default, \code{W=NULL}.
 #'
 #' @param maxL Maximum number of non-zero effects in the susie
 #'   regression model. If L is larger than the number of covariates, p,
@@ -21,6 +26,12 @@
 #'   value provided should be either a scalar or a vector of length
 #'   \code{L}. If \code{estimate_prior_variance = TRUE}, this provides
 #'   initial estimates of the prior variances.
+#'
+#' @param residual_variance Variance of the residual. If
+#'   \code{estimate_residual_variance = TRUE}, this value provides the
+#'   initial estimate of the residual variance. By default, it is set to
+#'   \code{var(y)} in \code{clamp} and \code{(1/(n-1))yty} in
+#'   \code{susie_suff_stat}.
 #'
 #' @param prior_inclusion_prob A vector of length p, in which each entry
 #'   gives the prior probability that corresponding column of X has a
@@ -71,10 +82,29 @@
 #'   note of caution that setting this to a value greater than zero may
 #'   lead the IBSS fitting procedure to occasionally decrease the ELBO.
 #'
+#' @param mle_variance_estimator The method to estimate the variances of
+#'   IPW estimators. \code{"bootstrap"} estimates the variance via 100
+#'   bootstrap replicates, \code{"sandwich"} computes the robust sandwich
+#'   variance estimates, and \code{"naive"} calculates the variances based
+#'   on the corresponding weighted linear regression models.
+#'
+#' @param burn_in A number, referring to the number of initial iterations
+#'   being discarded. It is used to check the convergence when
+#'   \code{mle_variance_estimator="bootstrap"}. Some pilot simulations are
+#'   recommended to determine the burn-in period.
+#'
+#' @param converge_window A number. If, after the burn-in period, the
+#'   average of ELBO of \code{converge_window} successive iterations converges,
+#'   then the algorithm is considered converged.
+#'
 #' @param prior_tol When the prior variance is estimated, compare the
 #'   estimated value to \code{prior_tol} at the end of the computation,
 #'   and exclude a single effect from PIP computation if the estimated
 #'   prior variance is smaller than this tolerance value.
+#'
+#' @param residual_variance_upperbound Upper limit on the estimated
+#'   residual variance. It is only relevant when
+#'   \code{estimate_residual_variance = TRUE}.
 #'
 #' @param abnormal_proportion a value between 0 and 1. If the number of detected
 #'   abnormal subjects exceeds \eqn{abnormal_proportion * nrow(X)},
@@ -114,6 +144,10 @@
 #'   is also returned containing detailed information about the
 #'   estimates at each iteration of the IBSS fitting procedure.
 #'
+#' @param residual_variance_lowerbound Lower limit on the estimated
+#'   residual variance. It is only relevant when
+#'   \code{estimate_residual_variance = TRUE}.
+#'
 #' @param n_purity Passed as argument \code{n_purity} to
 #'   \code{\link{clamp_get_cs}}.
 #'
@@ -139,6 +173,8 @@
 #' \item{logBF_variable}{log-Bayes Factor for each variable and single effect.}
 #'
 #' \item{intercept}{Intercept (fixed or estimated).}
+#'
+#' \item{sigma2}{Residual variance (fixed or estimated).}
 #'
 #' \item{prior_varD}{Prior variance of the non-zero elements of b, equal to
 #'   \code{scaled_prior_variance * var(y)}.}
@@ -170,31 +206,43 @@
 
 #'
 #' @importFrom stats var
+#' @importFrom stats weighted.mean
 #' @importFrom utils modifyList
 #'
 #' @export
 #'
-gsusie <- function (X, y,
+clamp_binary <- function (X, y,
+                   W = NULL, ## IPW matrix, should be of same size of X
                    maxL = min(10,ncol(X)),
-                   family = c("logistic", "poisson"),
+                   # family = "linear",
                    scaled_prior_variance = 0.2,
+                   residual_variance = NULL,
                    prior_inclusion_prob = NULL,
-                   standardize = TRUE,
+                   standardize = FALSE,
                    intercept = TRUE,
+                   estimate_residual_variance = TRUE,
                    estimate_prior_variance = TRUE,
                    estimate_prior_method = c("optim", "EM", "simple"),
                    check_null_threshold = 0,
+                   mle_estimator = c("mHT", "WLS"),
+                   mle_variance_estimator = c("bootstrap", "sandwich", "naive"),
+                   nboots = 100,
+                   seed = NULL,
+                   burn_in = 10,
+                   converge_window = 10,
                    prior_tol = 1e-9,
+                   residual_variance_upperbound = Inf,
                    abnormal_proportion = 0.5,
                    robust_method = c("none", "huber"),
                    robust_estimator = c("M", "S"),
                    coverage = 0.95,
                    min_abs_corr = 0.5,
                    na.rm = FALSE,
-                   max_iter = 500,
-                   tol = 1e-3,
+                   max_iter = 200,
+                   tol = 1e-2,
                    verbose = FALSE,
                    track_fit = FALSE,
+                   residual_variance_lowerbound = var(drop(y))/1e4,
                    n_purity = 100) {
 
   # Process input estimate_prior_method.
@@ -204,29 +252,15 @@ gsusie <- function (X, y,
   # Process input robust_estimator
   robust_estimator = match.arg(robust_estimator)
 
-  # Process input family and the related functions
-  family = match.arg(family)
-  model <- list()
-  model$family <- family
-  switch(model$family,
-         "logistic" = {
-           model$log_pseudo_var  <- log_pseudo_variance_logistic
-           model$pseudo_response <- pseudo_response_logistic
-           model$loglik          <- loglik_logistic
-           model$inverse_link    <- inverse_link_logistic},
-         "poisson" = {
-           model$log_pseudo_var  <- log_pseudo_variance_poisson
-           model$pseudo_response <- pseudo_response_poisson
-           model$loglik          <- loglik_poisson
-           model$inverse_link    <- inverse_link_poisson}
-  )
-
+  # Process input mle_variance_estimator
+  mle_variance_estimator = match.arg(mle_variance_estimator)
 
   # Check input X.
   if (!(is.double(X) & is.matrix(X)) & !inherits(X,"CsparseMatrix") &
       is.null(attr(X,"matrix.type")))
     stop("Input X must be a double-precision matrix, or a sparse matrix, or ",
          "a trend filtering matrix")
+  ## sparse matrix?!
 
   # Check input.
   if (anyNA(X))
@@ -246,45 +280,36 @@ gsusie <- function (X, y,
 
 
   # Center and scale input.
+  if (mle_estimator == "mHT") {
+    # When applying the modified Horvitz-Thompson estimator,
+    # the input X and response Y does not need to be scaled.
+    # Each entry of X should be either 0 or 1.
+    out = compute_colstats(X, center = F, scale = F)
+  } else if (mle_estimator == "WLS") {
+    out = compute_colstats(X, W, center = intercept, scale = standardize)
+  }
   # Set three attributes for matrix X: attr(X,'scaled:center') is a
   # p-vector of column means of X if center=TRUE, a p vector of zeros
   # otherwise; 'attr(X,'scaled:scale') is a p-vector of column
   # standard deviations of X if scale=TRUE, a p vector of ones
-  # otherwise; 'attr(X,'d') is a p-vector of column sums of
+  # otherwise;
+  attr(X, "scaled:center") = out$scaled_center
+  attr(X, "scaled:scale")  = out$scaled_scale
+  # 'attr(X,'d') is a p-vector of column sums of
   # X.standardized^2,' where X.standardized is the matrix X centered
   # by attr(X,'scaled:center') and scaled by attr(X,'scaled:scale').
-  # Requires the package `matrixStats`
+  # Requires the package `matrixStats`.
+  ## attr(X, "d") is applied when computing ERSS (`get_ER2()`), which is
+  ## to estimate the residual variance.
+  ## It seems that the squared X should not be weighted?!
+  attr(X, "d") = out$d
 
-  # Since the weights (inverse of pseudo-variance) are iteratively updated,
-  # the column statistics should be computed within `update_each_effect_glm`.
-  if (family %in% c("logistic", "poisson")) {
-
-    # Since GLM applies iterative reweighted least-squares,
-    # The centralization and standardization processes should not be applied
-    # here. Instead, they should be applied in the `update_each_effect`.
-
-    ## Opt out: scaling X but not centralizing it.
-    out = compute_colstats(X, center = standardize, scale = standardize)
-
-    if (intercept) {  ## by default
-
-      X <- cbind(X, 1)  ## add an all-one folumn representing the offset term
-      const_index <- ncol(X)
-      colnames(X)[const_index] <- "(Intercept)"
-
-      attr(X, "scaled:center") <- append(out$scaled_center, 0)
-      attr(X, "scaled:scale") <- append(out$scaled_scale, 1)
-      attr(X, "d") <- append(out$d, nrow(X))  ## applied in computing ERSS (`get_ER2()`)
-
-      ## The input response will not be modified.
-
-    } else { ## intercept = FALSE
-
-      attr(X,"scaled:center") = out$scaled_center
-      attr(X,"scaled:scale")  = out$scaled_scale
-      attr(X,"d") = out$d  ## applied in computing ERSS (`get_ER2()`)
-    }
+  if (intercept) {  ## do not affect the estimation of beta (MLE)
+    mean_y = mean(y)
+    attr(y, "scaled:center") <-
+      sapply(1:ncol(W), function(j) weighted.mean(x=y, w=W[,j]))
   }
+
 
   n <- nrow(X)
   p <- ncol(X)
@@ -293,10 +318,18 @@ gsusie <- function (X, y,
                     "the Rfast package for more efficient credible set (CS)",
                     "calculations.", style='hint')
 
+
+  # Check weight matrix W
+  if (!is.null(W)){
+    # Check whether the dimensions of W and X match
+    if (!( (length(W) == nrow(X)) | all(dim(W) == dim(X)) ))
+      stop("The dimensions of W and input X do not match!")
+  }
+
   # Initialize clamp fit.
-  s <- init_setup(n=n, p=p, maxL=maxL, family=family,
+  s <- init_setup(n=n, p=p, maxL=maxL, family="linear",
                   scaled_prior_variance=scaled_prior_variance,
-                  residual_variance=NULL,
+                  residual_variance=residual_variance,
                   prior_inclusion_prob=prior_inclusion_prob,
                   varY=as.numeric(var(y)),
                   standardize=standardize)
@@ -311,6 +344,10 @@ gsusie <- function (X, y,
   loglik = rep(as.numeric(NA),max_iter+1)  ## not required to know...
   loglik[1] = -Inf
 
+  # (Expected) weighted sum of squared residual
+  WRSS = rep(as.numeric(NA),max_iter+1)  ## not required to know...
+  WRSS[1] = -Inf
+
   tracking = list()
 
   for (tt in 1:max_iter) {
@@ -318,28 +355,80 @@ gsusie <- function (X, y,
     if (track_fit)
       tracking[[tt]] = clamp_slim(s)
 
-    s <- gsusie_update_each_effect(X=X, y=y, s=s, model=model,
-                            estimate_prior_variance = estimate_prior_variance,
-                            estimate_prior_method = estimate_prior_method,
-                            check_null_threshold = check_null_threshold,
-                            abnormal_proportion = abnormal_proportion,
-                            robust_method = robust_method,
-                            robust_estimator = robust_estimator)
+    # if !is.null(seed), update the random seed in every iteration.
+    if (!is.null(seed)) {seed <- seed + tt}
+
+    s <- clamp_update_each_effect_binary(X = X, y = y, s = s, W = W,
+                          mle_estimator = mle_estimator,
+                          mle_variance_estimator = mle_variance_estimator,
+                          nboots = nboots,
+                          seed = seed,
+                          estimate_prior_variance = estimate_prior_variance,
+                          estimate_prior_method = estimate_prior_method,
+                          check_null_threshold = check_null_threshold,
+                          abnormal_proportion = abnormal_proportion,
+                          robust_method = robust_method,
+                          robust_estimator = robust_estimator)
 
     # Compute objective before updating residual variance because part
     # of the objective s$kl has already been computed under the
     # residual variance before the update.
-    elbo[tt+1] = get_elbo(X, y, s, model=model)
-    loglik[tt+1] = sum(model$loglik(X, y, s))
+    # elbo[tt+1] = get_elbo(X, y, s, W)
+    elbo[tt+1]   = get_elbo(s)
+    WRSS[tt+1]   = mean(s$EWR2)
+    loglik[tt+1] = mean(s$Eloglik)
 
     if (verbose){
-      print(paste("#iteration:", tt, "; objective:", elbo[tt+1]))
+      print(paste("#iteration:", tt,
+                  "; objective:", round(elbo[tt+1], 2),
+                  "; expected WRSS:", round(WRSS[tt+1], 2),
+                  # "; loglik:", round(loglik[tt+1], 2),
+                  "; sum(alpha^2):", round(sum(s$alpha^2), 2)))
     }
 
-    if (abs(elbo[tt+1] - elbo[tt]) < tol) {
-      s$converged = TRUE
-      break
+    ## convergence condition
+    ## some outputs:
+    if (mle_variance_estimator == "bootstrap") {
+
+      ## If the approach selects nothing,
+      ## then the objective would be a constant after a few iterations.
+      if (abs(elbo[tt+1] - elbo[tt]) < tol) {
+        s$converged = TRUE
+        break
+      }
+
+      ## Otherwise, due to the randomness in bootstrapping,
+      ## the ELBO may not converge to a specific value; instead, it may
+      ## fluctuate around a certain range. Thus, we use the following
+      ## after a "burn-in" period, if the average of `converge_window`
+      ## successive ELBO converges, then break the loop.
+        if (tt > (burn_in + converge_window + 1)) {
+          if ( abs(mean(elbo[(tt - converge_window - 1) : (tt-1)]) -
+                   mean(elbo[(tt - converge_window) : (tt)]) ) < tol ) {
+              s$converged = TRUE
+              break
+          }
+        }
+    } else {
+      if (abs(elbo[tt+1] - elbo[tt]) < tol) {
+        s$converged = TRUE
+        break
+      }
     }
+
+
+
+
+
+    if (estimate_residual_variance) {
+      s$sigma2 <- pmax(residual_variance_lowerbound,
+                       estimate_residual_variance_fun(X,y,s))
+
+      if (s$sigma2 > residual_variance_upperbound)
+        s$sigma2 <- residual_variance_upperbound
+    }
+    print(s$sigma2)
+
 
   }
 
@@ -348,6 +437,9 @@ gsusie <- function (X, y,
   s$elbo = elbo
   loglik = loglik[2:(tt+1)]
   s$loglik = loglik
+  # Remove redundancies
+  s$Eloglik = NULL
+  s$EWR2 = NULL
 
   s$niter = tt
 
@@ -357,16 +449,22 @@ gsusie <- function (X, y,
   }
 
 
-  # Outputs: intercept
   if (intercept) {
-    s$intercept <- colSums(s$alpha*s$mu)[p] # -
-    # sum( attr(X,"scaled:center")[-p] *
-    #        (colSums(s$alpha*s$mu)/attr(X,"scaled:scale"))[-p] )
+    # Estimate unshrunk intercept.
+    # Treat this as an ordinary linear regression model
+    # Here, the intercept and the estimated residual variance implicitly
+    # represents the effect of the confounding factor on y.
+    s$intercept <- mean_y -
+      sum( colMeans(X) * (colSums(s$alpha * s$mu) / colSds(X)) )
+    s$fitted <- s$Xr + mean_y
+    # s$intercept <- mean_y -
+    #   sum( attr(X,"scaled:center") *
+    #          (colSums(s$alpha * s$mu)/attr(X,"scaled:scale")) )
   } else {
     s$intercept <- 0
+    s$fitted <- s$Xr
   }
 
-  s$fitted <- model$inverse_link(s$Xr)
 
   s$fitted = drop(s$fitted)
   names(s$fitted) = `if`(is.null(names(y)),rownames(X),names(y))
@@ -377,8 +475,8 @@ gsusie <- function (X, y,
   # Credible Sets and PIPs
   if (!is.null(coverage) && !is.null(min_abs_corr)) {
     s$sets = clamp_get_cs(s,coverage = coverage,X = X,
-                          min_abs_corr = min_abs_corr,
-                          n_purity = n_purity)
+                                  min_abs_corr = min_abs_corr,
+                                  n_purity = n_purity)
     s$pip = clamp_get_pip(s,prune_by_cs = FALSE,prior_tol = prior_tol)
   }
 

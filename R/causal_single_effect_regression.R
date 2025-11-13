@@ -1,21 +1,19 @@
-#' @rdname weighted_single_effect_regresion
+#' @rdname causal_single_effect_regresion
 #'
-#' @title Weighted single effect regression
+#' @title Single effect regression with inverse probability weighting estimates for categorical treatments
 #'
 #' @description
-#' The WSER function is to compute the posterior distribution of the regression
-#' coefficients of a WSER model. Reference:
+#' This function is to compute the posterior distribution of the regression
+#' coefficients of a Causal-SER model. Adapted from:
 #' <https://github.com/stephenslab/susieR/blob/master/R/single_effect_regression.R>
-#' This is basically used for function \code{gsusie}.
+#' This is basically for function \code{clamp}.
 #'
-#' @param y an (n by 1) vector of responses.
+#' @param y An (n by 1) vector of responses.
 #'
-#' @param X An (n by p) data matrix.
+#' @param X An (n by p) data matrix; each entry would be 0 or 1.
 #'
-#' @param W An (n by 1) vector.
-#' If \code{W} is an (n by 1) vector, it contains the W of each subject;
-#' for a generalized linear model using iterative reweighted least squared
-#' approach, \eqn{W = exp(-logw2)};
+#' @param W An (n by p) matrix; each entry is the weight of each each
+#' entry of \eqn{X}; it should be of the same size as \eqn{X}.
 #'
 #' @param residual_variance A scalar refers to the residual variance.
 #' To be consistent with susieR, it should be specified when \code{W=NULL}.
@@ -31,9 +29,12 @@
 #' @param check_null_threshold Scalar specifying the threshold on the log-scale
 #' to compare likelihood between current estimate and zero (null).
 #'
-#' @param mle_var_estimator The estimation method of the variance of the MLEs.
-#' \code{"naive"} calculates the variances from the weighted least square model,
-#' treating weights as constants.
+#' @param causal_effect_estimator The estimation method of the causal effect.
+#' \code{"ipw"} estimates the ATE with inverse probability weighting estimator.
+#'
+#' @param variance_estimator The estimation method of the variance of the
+#' (Horvitz-Thompson) ATE estimators.
+#' \code{"bootstrap"} estimates the variances from \code{nboots} bootstrap replicates.
 #'
 #' @param nboots The number of bootstrap replicates. By default, \code{nboots=100}.
 #'
@@ -50,6 +51,12 @@
 #'
 #' \item{mu2}{Vector of posterior second moments (conditional on inclusion).}
 #'
+#' \item{deltahat}{Vector of (non Bayesian) average treatment estimates (ATEs).}
+#'
+#' \item{shat2}{Vector of approximated variance estimates of ATEs}
+#'
+#' \item{thetahat0}{Vector of average causal effect estimates of baselines.}
+#'
 #' \item{logBF}{Vector of log of (asymptotic) Bayes factor for each variable.}
 #'
 #' \item{logBF_model}{Log of (asymptotic) Bayes factor for the
@@ -65,52 +72,57 @@
 #'
 #' @keywords internal
 #'
-weighted_single_effect_regression <-
+causal_single_effect_regression <-
   function(y, X,
            W = NULL,
            prior_varD,
            residual_variance = 1,
            prior_inclusion_prob = NULL,
            optimize_prior_varD = c("none", "optim", "EM", "simple"),
-           check_null_threshold = 0) {
+           check_null_threshold = 0,
+           causal_effect_estimator = c("mHT"),
+           variance_estimator = c("bootstrap"),
+           nboots = 100,
+           seed = NULL) {
 
     optimize_prior_varD <- match.arg(optimize_prior_varD)
 
-    p <- ncol(X)
-    n <- nrow(X)
+    nn <- nrow(X)
 
     # Check W
     if (is.null(W)) {
-      W <- rep(1, times = n)
-    } else if (length(W) == n) {  ## (n by 1) vector
-      W <- as.numeric(W)
-    } else {
+      W <- rep(1, times = nn)
+    } else if (!all(dim(W) == dim(X))) {  ## (n by p) matrix
       stop("Dimensions of W and X do not match!")
     }
 
-    ## Assume each column of X has been centralized...
-    # Scale X: centralize X by its weighted mean.
-    # should I compute the weighted means here? Or in the update_each_effect()?
-    X_ <- sweep(X, 2, colWeightedMeans(x = X, w = W), "-")
-    ## How about standardization?
-    # X_ <- sweep(X_, 2, attr(X, "scaled:scale"), "/")
+    switch(variance_estimator,
+           "bootstrap" = {
+             ATE <-
+               estimate_average_treatment_effect_categorical(X, y, W,
+                    causal_effect_estimator = causal_effect_estimator)
+             deltahat <- ATE$deltahat
+             # thetahat0 <- ATE$thetahat0
 
-    # Scale y: y is a n-dim matrix.
-    y_ <- y - weighted.mean(y, w = W)
+             boot_result <-
+               bootstrap_ipw_variance_categorical(X = X, y = y, W = W,
+                            causal_effect_estimator = causal_effect_estimator,
+                            nboots = nboots, seed = seed)
+             shat2 <- boot_result$deltahat_bootVars
+             # thetahat0_bootMeans <- boot_result$thetahat0_bootMeans
+           }
+           )
 
-    wxy <- colSums(sweep(X_, 1, W * y_, "*"))
-    wx2 <- colSums(sweep(X_^2, 1, W, "*"))
-    deltahat <- wxy / wx2
-    shat2 <- residual_variance / wx2
-    # shat2 <- 1/wx2
+    plevels <- length(deltahat)  ## number of levels
+    # plevels <- length(attr(X, "K_minus_1_dummy_indices"))
 
     # Check prior_inclusion_probability
     ## If `prior_inclusion_probability` is consistent to all variables,
     ## its value should not affect the posterior inclusion probability (alpha).
     if (is.null(prior_inclusion_prob)) {
-      prior_inclusion_prob <- rep(1/p, times = p)
+      prior_inclusion_prob <- rep(1/plevels, times = plevels)
     } else {
-      if (length(prior_inclusion_prob) != p)
+      if (length(prior_inclusion_prob) != plevels)
         stop("The length of prior inclusion probability does not match")
     }
 
@@ -120,8 +132,6 @@ weighted_single_effect_regression <-
                                   alpha = NULL, mu2 = NULL,
                                   prior_varD_init = prior_varD,
                                   check_null_threshold = check_null_threshold)
-
-      prior_varD <- pmax(prior_varD, 1e-10)
     }
 
     # compute log of Bayes factor (logBF) and log of posterior odds (logPO)
@@ -135,7 +145,6 @@ weighted_single_effect_regression <-
     logBF[is.infinite(shat2)] <- 0
     logPO[is.infinite(shat2)] <- 0
     maxlogPO <- max(logPO)
-
     # logPO_tilde is proportional to posterior odds = BF * prior,
     # but subtract max for numerical stability
     logPO_weighted <- exp(logPO - maxlogPO)
@@ -143,9 +152,9 @@ weighted_single_effect_regression <-
     # Update the posterior estimates
     # Posterior prob for each variable
     alpha <- logPO_weighted / sum(logPO_weighted)    # posterior inclusion probability
-    post_varD <- (1/shat2 + 1/prior_varD)^(-1)        # posterior variance
+    posterior_varD <- 1 / (1/shat2 + 1/prior_varD)   # posterior variance
     mu <- prior_varD / (prior_varD + shat2) * deltahat  # posterior mean
-    mu2 <- post_varD + mu^2                      # posterior second moment
+    mu2 <- posterior_varD + mu^2                      # posterior second moment
 
     # ABF for WSER model
     logBF_model <- maxlogPO + log(sum(logPO_weighted))
@@ -153,20 +162,20 @@ weighted_single_effect_regression <-
 
     if (optimize_prior_varD == "EM") {
       prior_varD <- optimize_prior_variance(optimize_prior_varD, deltahat, shat2,
-                                   prior_inclusion_prob,
-                                   alpha, mu2,
-                                   check_null_threshold = check_null_threshold)
-      prior_varD <- pmax(prior_varD, 1e-10)
+                                            prior_inclusion_prob,
+                                            alpha, mu2,
+                                    check_null_threshold = check_null_threshold)
     }
-    print(prior_varD)
 
-    return(list(alpha = alpha,      # posterior inclusion probability
+    return(list(alpha = alpha,      # level-wise posterior inclusion probability
                 mu = mu,            # posterior mean
                 mu2 = mu2,          # posterior second moment
-                deltahat = deltahat,  # maximum likelihood estimator (MLE)
+                deltahat = deltahat,  # (non bayesian) ATEs
+                shat2 = shat2,        # approximate variances of ATEs
+                # thetahat0 = thetahat0,  # (non bayesian) baseline causal effect estimates. Replaced by the bootstrap means?
                 logBF = logBF,      # layer-wise log of Bayes factor
                 logBF_model = logBF_model,  # log of Bayes factor of model
-                prior_varD = prior_varD,  # prior variance of coefficients B
+                prior_varD = prior_varD  # prior variance of coefficients B
     ))
   }
 
