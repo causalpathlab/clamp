@@ -52,16 +52,18 @@ init_setup <- function (n, p, maxL, family,
     if (family == "linear") {
       ## for linear models,
       ## 1. initialize residual_variance as varY
-      residual_variance = varY
-      ## 2. initialize prior_varB as follows...
-      prior_varB = scaled_prior_variance * varY
+      if (is.null(residual_variance)) {
+        residual_variance = varY
+      }
+      ## 2. initialize prior_varD as follows...
+      prior_varD = scaled_prior_variance * varY
     } else {
       ## for logistic and poisson regression models
       ## for generalized linear models,
       ## 1. initialize residual_variance as 1
       residual_variance = 1
-      ## 2. initialize prior_varB as 1
-      prior_varB = 1
+      ## 2. initialize prior_varD as 1
+      prior_varD = 1
     }
 
   }
@@ -82,16 +84,16 @@ init_setup <- function (n, p, maxL, family,
            alpha  = matrix(1/p,nrow = maxL,ncol = p),
            mu     = matrix(0,nrow = maxL,ncol = p),
            mu2    = matrix(0,nrow = maxL,ncol = p),
-           betahat = matrix(0, nrow = maxL, ncol = p),  ## MLE
+           deltahat = matrix(0, nrow = maxL, ncol = p),  ## MLE
            shat2 = matrix(0, nrow = maxL, ncol = p), ## shat2 of MLE
            Xr     = rep(0,n),
            # KL     = rep(as.numeric(NA),maxL),
-           EWR2 = rep(as.numeric(NA), maxL),
+           # EWR2 = rep(as.numeric(NA), maxL),
            Eloglik = rep(as.numeric(NA), maxL),
            logBF  = rep(as.numeric(NA),maxL),
            logBF_variable = matrix(as.numeric(NA),maxL,p),
            sigma2 = residual_variance,           ## residual variance
-           prior_varB = prior_varB,         ## prior variance of coefficients b
+           prior_varD = prior_varD,         ## prior variance of coefficients b
            pie    = prior_inclusion_prob)
 
   if (family == "linear") class(s) = "clamp"
@@ -102,8 +104,8 @@ init_setup <- function (n, p, maxL, family,
 
 # Update a clamp fit object in order to initialize clamp model.
 init_finalize = function (s, X = NULL, Xr = NULL) {
-  if(length(s$prior_varB) == 1)
-    s$prior_varB = rep(s$prior_varB, nrow(s$alpha))
+  if(length(s$prior_varD) == 1)
+    s$prior_varD = rep(s$prior_varD, nrow(s$alpha))
 
   # Check sigma2.
   if (!is.numeric(s$sigma2))
@@ -117,16 +119,16 @@ init_finalize = function (s, X = NULL, Xr = NULL) {
     stop("Residual variance sigma2 must be positive (is your var(Y) zero?)")
 
   # check prior variance
-  if (!is.numeric(s$prior_varB))
+  if (!is.numeric(s$prior_varD))
     stop("Input prior variance must be numeric")
-  if (!all(s$prior_varB >= 0))
+  if (!all(s$prior_varD >= 0))
     stop("prior variance must be non-negative")
   if (!all(dim(s$mu) == dim(s$mu2)))
     stop("dimension of mu and mu2 in input object do not match")
   if (!all(dim(s$mu) == dim(s$alpha)))
     stop("dimension of mu and alpha in input object do not match")
-  if (nrow(s$alpha) != length(s$prior_varB))
-    stop("Input prior variance prior_varB must have length of nrow of alpha in ",
+  if (nrow(s$alpha) != length(s$prior_varD))
+    stop("Input prior variance prior_varD must have length of nrow of alpha in ",
          "input object")
 
   # Update Xr.

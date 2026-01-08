@@ -83,8 +83,8 @@ clamp_get_objective = function (res, last_only = TRUE, warning_tol = 1e-6) {
 clamp_get_posterior_mean = function (res, prior_tol = 1e-9) {
 
   # Drop the single-effects with estimated prior of zero.
-  if (is.numeric(res$prior_varB))
-    include_idx = which(res$prior_varB > prior_tol)
+  if (is.numeric(res$prior_varD))
+    include_idx = which(res$prior_varD > prior_tol)
   else
     include_idx = 1:nrow(res$alpha)
 
@@ -104,8 +104,8 @@ clamp_get_posterior_mean = function (res, prior_tol = 1e-9) {
 clamp_get_posterior_sd <- function (res, prior_tol = 1e-9) {
 
   # Drop the single-effects with estimated prior of zero.
-  if (is.numeric(res$prior_varB))
-    include_idx = which(res$prior_varB > prior_tol)
+  if (is.numeric(res$prior_varD))
+    include_idx = which(res$prior_varD > prior_tol)
   else
     include_idx = 1:nrow(res$alpha)
 
@@ -125,7 +125,7 @@ clamp_get_niter <- function (res) res$niter
 #' @rdname clamp_get_methods
 #' @export
 #'
-clamp_get_prior_variance <- function (res) res$prior_varB
+clamp_get_prior_variance <- function (res) res$prior_varD
 
 #' @rdname clamp_get_methods
 #' @export
@@ -157,8 +157,8 @@ clamp_get_lfsr <- function (res) {
 clamp_get_posterior_samples = function (res, num_samples) {
 
   # Remove effects having estimated prior variance equals zero.
-  if (is.numeric(res$prior_varB))
-    include_idx = which(res$prior_varB > 1e-9)
+  if (is.numeric(res$prior_varD))
+    include_idx = which(res$prior_varD > 1e-9)
   else
     include_idx = 1:nrow(res$alpha)
 
@@ -233,6 +233,7 @@ clamp_get_posterior_samples = function (res, num_samples) {
 clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
                          min_abs_corr = 0.5, dedup = TRUE, squared = FALSE,
                          check_symmetric = TRUE, n_purity = 100, use_rfast) {
+
   if (!is.null(X) && !is.null(Xcorr))
     stop("Only one of X or Xcorr should be specified")
   if (check_symmetric) {
@@ -244,15 +245,26 @@ clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
     }
   }
 
+  ## Get VARIABLE-WISE credible sets
   include_idx = rep(TRUE,nrow(res$alpha))
-  if (is.numeric(res$prior_varB)) include_idx = res$prior_varB > 1e-9
+  variable_level_names = colnames(res$alpha)
+  ## variable-level PIP for each layer
+  variable_names = sub("_.*", "", variable_level_names)
+  variable_alpha = sapply(unique(variable_names), function(var){
+    rowSums(res$alpha[, variable_names == var, drop=F])
+  })
+
+  if (is.numeric(res$prior_varD)) include_idx = res$prior_varD > 1e-9
   # L x P binary matrix.
-  status = in_CS(res$alpha, coverage)
+  # status = in_CS(res$alpha, coverage)
+  status = in_CS(variable_alpha, coverage)
 
   # L-list of CS positions.
   cs = lapply(1:nrow(status),function(i) which(status[i,]!=0))
+  # claimed_coverage = sapply(1:length(cs),
+  #                           function (i) sum(res$alpha[i,][cs[[i]]]))
   claimed_coverage = sapply(1:length(cs),
-                            function (i) sum(res$alpha[i,][cs[[i]]]))
+                            function (i) sum(variable_alpha[i,][cs[[i]]]))
   include_idx = include_idx * (lapply(cs,length) > 0)
 
   # FIXME: see issue 21
@@ -260,10 +272,12 @@ clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
   if (dedup)
     include_idx = include_idx * (!duplicated(cs))
   include_idx = as.logical(include_idx)
+
   if (sum(include_idx) == 0)
     return(list(cs = NULL,
                 coverage = NULL,
                 requested_coverage = coverage))
+
   cs = cs[include_idx]
   claimed_coverage = claimed_coverage[include_idx]
 
@@ -280,7 +294,8 @@ clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
     for (i in 1:length(cs)) {
         purity =
           rbind(purity,
-                matrix(get_purity(cs[[i]],X,Xcorr,squared,n_purity,use_rfast),1,3))
+                matrix(get_purity(cs[[i]],X,Xcorr,squared,n_purity,use_rfast),
+                       1,3))
     }
     purity = as.data.frame(purity)
     if (squared)
@@ -302,7 +317,7 @@ clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
                   purity   = purity[ordering,],
                   cs_index = which(include_idx)[is_pure[ordering]],
                   coverage = claimed_coverage[ordering],
-                  requested_coverage=coverage))
+                  requested_coverage = coverage))
     } else
       return(list(cs = NULL,coverage = NULL,requested_coverage = coverage))
   }
@@ -349,7 +364,8 @@ get_cs_correlation = function (res, X = NULL, Xcorr = NULL, max = FALSE) {
     Xcorr = Xcorr/2
   }
   # Get index for the best PIP per CS
-  max_pip_idx = sapply(res$sets$cs, function(cs) cs[which.max(res$pip[cs])])
+  # max_pip_idx = sapply(res$sets$cs, function(cs) cs[which.max(res$pip[cs])])
+  max_pip_idx = sapply(res$sets$cs, function(cs) cs[which.max(res$level_pip[cs])])
   if (is.null(Xcorr)) {
     X_sub = X[,max_pip_idx]
     cs_corr = muffled_corr(as.matrix(X_sub))
@@ -366,6 +382,10 @@ get_cs_correlation = function (res, X = NULL, Xcorr = NULL, max = FALSE) {
 
 #' @rdname clamp_get_methods
 #'
+#' @description
+#' Calculate the level-wise PIP and variable-wise PIP.
+#'
+#'
 #' @param prune_by_cs Whether or not to ignore single effects not in
 #'   a reported CS when calculating PIP.
 #'
@@ -379,8 +399,8 @@ clamp_get_pip = function (res, prune_by_cs = FALSE, prior_tol = 1e-9) {
   if (inherits(res,c("clamp", "susie"))) {
 
     # Drop the single-effects with estimated prior of zero.
-    if (is.numeric(res$prior_varB))
-      include_idx = which(res$prior_varB > prior_tol)
+    if (is.numeric(res$prior_varD))
+      include_idx = which(res$prior_varD > prior_tol)
     else
       include_idx = 1:nrow(res$alpha)
 
@@ -393,14 +413,28 @@ clamp_get_pip = function (res, prune_by_cs = FALSE, prior_tol = 1e-9) {
     if (is.null(res$sets$cs_index) && prune_by_cs)
       include_idx = numeric(0)
 
+    level_names <- colnames(res$alpha)
+    variable_names <- sub("_.*", "", colnames(res$alpha))
+
     # now extract relevant rows from alpha matrix
     if (length(include_idx) > 0)
       res = res$alpha[include_idx,,drop = FALSE]
     else
       res = matrix(0,1,ncol(res$alpha))
+
+    level_pip <- as.vector(1 - apply(1 - res,2,prod))
+    names(level_pip) <- level_names
+
+    variable_pip <- tapply(level_pip, variable_names,
+                           function(x) {1 - prod(1-x)})
+    variable_pip <- variable_pip[
+      order( as.numeric(sub("X", "", names(variable_pip))) )]
+
+    return(list(level_pip = level_pip, variable_pip = variable_pip))
+
   }
 
-  return(as.vector(1 - apply(1 - res,2,prod)))
+
 }
 
 # Find how many variables in the CS.
@@ -513,16 +547,16 @@ calc_stderr <- function (X, residuals)
 #' @keywords internal
 clamp_slim <- function (res)
   list(alpha = res$alpha, niter = res$niter,
-       prior_varB = res$prior_varB, sigma2 = res$sigma2)
+       prior_varD = res$prior_varD, sigma2 = res$sigma2)
 
 # Prune single effects to given number L in clamp model object.
 #' @keywords internal
-clamp_prune_single_effects <- function (s, L = 0, prior_varB = NULL) {
+clamp_prune_single_effects <- function (s, L = 0, prior_varD = NULL) {
   num_effects = nrow(s$alpha)
   if (L == 0) {
-    # Filtering will be based on non-zero elements in s$prior_varB.
-    if (!is.null(s$prior_varB))
-      L = length(which(s$prior_varB > 0))
+    # Filtering will be based on non-zero elements in s$prior_varD.
+    if (!is.null(s$prior_varD))
+      L = length(which(s$prior_varD > 0))
     else
       L = num_effects
   }
@@ -551,12 +585,12 @@ clamp_prune_single_effects <- function (s, L = 0, prior_varB = NULL) {
     for (n in "logBF")
       if (!is.null(s[[n]]))
         s[[n]] = c(s[[n]][effects_rank],rep(NA, L-num_effects))
-    if (!is.null(prior_varB)) {
-      if (length(prior_varB) > 1)
-        prior_varB[1:num_effects] = s$prior_varB[effects_rank]
-      else prior_varB = rep(prior_varB, L)
+    if (!is.null(prior_varD)) {
+      if (length(prior_varD) > 1)
+        prior_varD[1:num_effects] = s$prior_varD[effects_rank]
+      else prior_varD = rep(prior_varD, L)
     }
-    s$prior_varB = prior_varB
+    s$prior_varD = prior_varD
   }
   s$sets = NULL
   return(s)

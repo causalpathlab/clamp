@@ -23,9 +23,9 @@
 #' @param prior_inclusions_prob An (p by 1) vector of prior inclusion
 #' probabilities.
 #'
-#' @param prior_varB A scalar given the (initial) prior variance of the coefficient.
+#' @param prior_varD A scalar given the (initial) prior variance of the coefficient.
 #'
-#' @param optimize_prior_varB The optimization method to use for fitting the prior
+#' @param optimize_prior_varD The optimization method to use for fitting the prior
 #' variance.
 #'
 #' @param check_null_threshold Scalar specifying the threshold on the log-scale
@@ -55,7 +55,7 @@
 #' \item{logBF_model}{Log of (asymptotic) Bayes factor for the
 #'          weighted single effect regression.}
 #'
-#' \item{prior_varB}{Prior variance (after optimization if \code{optimize_prior_varB != "none"}).}
+#' \item{prior_varD}{Prior variance (after optimization if \code{optimize_prior_varD != "none"}).}
 #'
 #' @importFrom stats dnorm
 #' @importFrom stats uniroot
@@ -68,13 +68,13 @@
 weighted_single_effect_regression <-
   function(y, X,
            W = NULL,
-           prior_varB,
+           prior_varD,
            residual_variance = 1,
            prior_inclusion_prob = NULL,
-           optimize_prior_varB = c("none", "optim", "EM", "simple"),
+           optimize_prior_varD = c("none", "optim", "EM", "simple"),
            check_null_threshold = 0) {
 
-    optimize_prior_varB <- match.arg(optimize_prior_varB)
+    optimize_prior_varD <- match.arg(optimize_prior_varD)
 
     p <- ncol(X)
     n <- nrow(X)
@@ -100,7 +100,7 @@ weighted_single_effect_regression <-
 
     wxy <- colSums(sweep(X_, 1, W * y_, "*"))
     wx2 <- colSums(sweep(X_^2, 1, W, "*"))
-    betahat <- wxy / wx2
+    deltahat <- wxy / wx2
     shat2 <- residual_variance / wx2
     # shat2 <- 1/wx2
 
@@ -114,21 +114,21 @@ weighted_single_effect_regression <-
         stop("The length of prior inclusion probability does not match")
     }
 
-    if (optimize_prior_varB != "EM" && optimize_prior_varB != "none") {
-      prior_varB <- optimize_prior_variance(optimize_prior_varB, betahat, shat2,
+    if (optimize_prior_varD != "EM" && optimize_prior_varD != "none") {
+      prior_varD <- optimize_prior_variance(optimize_prior_varD, deltahat, shat2,
                                   prior_inclusion_prob,
                                   alpha = NULL, mu2 = NULL,
-                                  prior_varB_init = prior_varB,
+                                  prior_varD_init = prior_varD,
                                   check_null_threshold = check_null_threshold)
 
-      prior_varB <- pmax(prior_varB, 1e-10)
+      prior_varD <- pmax(prior_varD, 1e-10)
     }
 
     # compute log of Bayes factor (logBF) and log of posterior odds (logPO)
     # .loge <- function(t) log(t+.Machine$double.eps) (in `elbo.R`)
-    zscore2 <- betahat^2 / shat2
-    logBF <- 1/2 * (.loge(shat2 /(shat2 + prior_varB)) +
-                      zscore2 * prior_varB / (prior_varB + shat2))
+    zscore2 <- deltahat^2 / shat2
+    logBF <- 1/2 * (.loge(shat2 /(shat2 + prior_varD)) +
+                      zscore2 * prior_varD / (prior_varD + shat2))
     logPO <- logBF + log(prior_inclusion_prob + sqrt(.Machine$double.eps))
     # deal with special case of infinite shat2
     # (e.g. happens if X does not vary)
@@ -143,30 +143,30 @@ weighted_single_effect_regression <-
     # Update the posterior estimates
     # Posterior prob for each variable
     alpha <- logPO_weighted / sum(logPO_weighted)    # posterior inclusion probability
-    post_varB <- (1/shat2 + 1/prior_varB)^(-1)        # posterior variance
-    mu <- prior_varB / (prior_varB + shat2) * betahat  # posterior mean
-    mu2 <- post_varB + mu^2                      # posterior second moment
+    post_varD <- (1/shat2 + 1/prior_varD)^(-1)        # posterior variance
+    mu <- prior_varD / (prior_varD + shat2) * deltahat  # posterior mean
+    mu2 <- post_varD + mu^2                      # posterior second moment
 
     # ABF for WSER model
     logBF_model <- maxlogPO + log(sum(logPO_weighted))
     # = log(sum(ABF x prior_weights))
 
-    if (optimize_prior_varB == "EM") {
-      prior_varB <- optimize_prior_variance(optimize_prior_varB, betahat, shat2,
+    if (optimize_prior_varD == "EM") {
+      prior_varD <- optimize_prior_variance(optimize_prior_varD, deltahat, shat2,
                                    prior_inclusion_prob,
                                    alpha, mu2,
                                    check_null_threshold = check_null_threshold)
-      prior_varB <- pmax(prior_varB, 1e-10)
+      prior_varD <- pmax(prior_varD, 1e-10)
     }
-    print(prior_varB)
+    print(prior_varD)
 
     return(list(alpha = alpha,      # posterior inclusion probability
                 mu = mu,            # posterior mean
                 mu2 = mu2,          # posterior second moment
-                betahat = betahat,  # maximum likelihood estimator (MLE)
+                deltahat = deltahat,  # maximum likelihood estimator (MLE)
                 logBF = logBF,      # layer-wise log of Bayes factor
                 logBF_model = logBF_model,  # log of Bayes factor of model
-                prior_varB = prior_varB,  # prior variance of coefficients B
+                prior_varD = prior_varD,  # prior variance of coefficients B
     ))
   }
 

@@ -22,12 +22,17 @@ summary.clamp = function (object, ...) {
     stop("Cannot summarize clamp object because credible set information ",
          "is not available")
 
-  if (!is.null(names(object$pip))) {
-    variables = data.frame(cbind(1:length(object$pip),
-                                 names(object$pip), object$pip, -1))
+  ## Use variable-wise PIP to account for credible sets
+  if (!is.null(names(object$variable_pip))) {
+    variables = data.frame(cbind(1:length(object$variable_pip),
+                                 names(object$variable_pip),
+                                 object$variable_pip,
+                                 -1))
   } else {
-    variables = data.frame(cbind(1:length(object$pip),
-                                 1:length(object$pip),object$pip,-1))
+    variables = data.frame(cbind(1:length(object$variable_pip),
+                                 1:length(object$variable_pip),
+                                 object$variable_pip,
+                                 -1))
   }
   colnames(variables) = c("index",
                           "variable","variable_prob","cs")
@@ -39,12 +44,12 @@ summary.clamp = function (object, ...) {
       variables$cs[variables$index %in% object$sets$cs[[i]]] =
         object$sets$cs_index[[i]]
       cs$cs[i] = object$sets$cs_index[[i]]
-      cs$cs_logBF[i]  = object$logBF[cs$cs[i]]
+      cs$cs_logBF[i]  = object$logBF[cs$cs[i]]  ##??! just the logBF of a specific level!
       cs$cs_avg_r2[i] = object$sets$purity$mean.abs.corr[i]^2
       cs$cs_min_r2[i] = object$sets$purity$min.abs.corr[i]^2
-      if (!is.null(names(object$pip))) {
+      if (!is.null(names(object$variable_pip))) {
         cs$variable[i] =
-          paste(names(object$pip)[ object$sets$cs[[i]] ], collapse = ",")
+          paste(names(object$variable_pip)[ object$sets$cs[[i]] ], collapse = ",")
       } else {
         cs$variable[i] = paste(object$sets$cs[[i]],collapse=",")
       }

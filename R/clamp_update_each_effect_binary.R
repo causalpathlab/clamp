@@ -51,7 +51,7 @@
 #'   \code{robust_estimator="M"} indicates the M-estimator is applied, and
 #'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
-update_each_effect <- function (X, y, s, W=NULL,
+clamp_update_each_effect_binary <- function (X, y, s, W=NULL,
                   mle_estimator = c("mHT", "WLS"),
                   mle_variance_estimator = c("bootstrap", "sandwich"),
                   nboots = 100,
@@ -133,12 +133,12 @@ update_each_effect <- function (X, y, s, W=NULL,
 
 
       ## fit the ipw-ser
-      res <- ipw_single_effect_regression(y=Rl, X=X_sub,
+      res <- ipw_single_effect_regression_binary(y=Rl, X=X_sub,
                                 W = WW_sub,
                                 residual_variance = s$sigma2,
                                 prior_inclusion_prob = s$pie,
-                                prior_varB = s$prior_varB[l],
-                                optimize_prior_varB = estimate_prior_method,
+                                prior_varD = s$prior_varD[l],
+                                optimize_prior_varD = estimate_prior_method,
                                 check_null_threshold = check_null_threshold,
                                 mle_estimator = mle_estimator,
                                 mle_variance_estimator = mle_variance_estimator,
@@ -150,9 +150,9 @@ update_each_effect <- function (X, y, s, W=NULL,
       s$mu[l,]        = res$mu
       s$mu2[l,]       = res$mu2
       s$alpha[l,]     = res$alpha
-      s$betahat[l,]   = res$betahat
+      s$deltahat[l,]   = res$deltahat
       s$shat2[l,]     = res$shat2
-      s$prior_varB[l] = res$prior_varB
+      s$prior_varD[l] = res$prior_varD
       s$logBF[l]      = res$logBF_model
       s$logBF_variable[l,] = res$logBF
       s$EWR2[l]       = res$EWR2
@@ -163,7 +163,6 @@ update_each_effect <- function (X, y, s, W=NULL,
     }
 
     s$Xr <- compute_Xb(X, colSums(s$alpha * s$mu))  # update linear predictor
-    # print(sum(s$Xr^2))
   }
 
   return(s)

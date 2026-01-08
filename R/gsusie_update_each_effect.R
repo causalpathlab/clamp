@@ -1,4 +1,6 @@
 #' @title Update each effect once in a generalized linear model; each sub-model is a weighted SER.
+#'
+#' @rdname gsusie_update_each_effect
 #' @param X An (n by p) matrix of regressor variables
 #' @param y An n vector of response variable
 #' @param s A gsusie fit
@@ -17,7 +19,7 @@
 #'   \code{robust_estimator="M"} indicates the M-estimator is applied, and
 #'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
-update_each_effect_glm <- function (X, y, s, model,
+gsusie_update_each_effect <- function (X, y, s, model,
                                     estimate_prior_variance = FALSE,
                                     estimate_prior_method = "optim",
                                     check_null_threshold = 0,
@@ -103,8 +105,8 @@ update_each_effect_glm <- function (X, y, s, model,
                                   W = WW_sub,
                                   residual_variance = 1,
                                   prior_inclusion_prob = s$pie,
-                                  prior_varB = s$prior_varB[l],
-                                  optimize_prior_varB = estimate_prior_method,
+                                  prior_varD = s$prior_varD[l],
+                                  optimize_prior_varD = estimate_prior_method,
                                   mle_variance_estimator="naive",
                                   check_null_threshold = check_null_threshold)
 
@@ -112,8 +114,8 @@ update_each_effect_glm <- function (X, y, s, model,
       s$mu[l,]        = res$mu
       s$mu2[l,]       = res$mu2
       s$alpha[l,]     = res$alpha
-      s$betahat[l,]   = res$betahat
-      s$prior_varB[l] = res$prior_varB
+      s$deltahat[l,]   = res$deltahat
+      s$prior_varD[l] = res$prior_varD
       s$logBF[l]      = res$logBF_model
       s$logBF_variable[l,] = res$logBF
       # s$KL[l]     = -res$loglik +

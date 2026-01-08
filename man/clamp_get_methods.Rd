@@ -151,4 +151,6 @@ fit.}
 \description{
 These functions are modified from \code{susie_utils.R} of the \code{susieR} package.
 They access basic properties or draw inferences from a fitted clamp model.
+
+Calculate the level-wise PIP and variable-wise PIP.
 }
