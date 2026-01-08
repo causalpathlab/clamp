@@ -8,14 +8,11 @@ weighted_single_effect_regression(
   y,
   X,
   W = NULL,
-  prior_varB,
+  prior_varD,
   residual_variance = 1,
   prior_inclusion_prob = NULL,
-  optimize_prior_varB = c("none", "optim", "EM", "simple"),
-  check_null_threshold = 0,
-  mle_variance_estimator = c("bootstrap", "sandwich", "naive"),
-  nboots = 100,
-  seed = NULL
+  optimize_prior_varD = c("none", "optim", "EM", "simple"),
+  check_null_threshold = 0
 )
 }
 \arguments{
@@ -23,38 +20,33 @@ weighted_single_effect_regression(
 
 \item{X}{An (n by p) data matrix.}
 
-\item{W}{An (n by 1) vector or an (n by p) matrix.
+\item{W}{An (n by 1) vector.
 If \code{W} is an (n by 1) vector, it contains the W of each subject;
 for a generalized linear model using iterative reweighted least squared
-approach, \eqn{W = exp(-logw2)};
-If \code{W} is an (n by p) matrix, each entry is the weight of each each
-entry of \eqn{X}; it should be of the same size as \eqn{X}.}
+approach, \eqn{W = exp(-logw2)};}
 
-\item{prior_varB}{A scalar given the (initial) prior variance of the coefficient.}
+\item{prior_varD}{A scalar given the (initial) prior variance of the coefficient.}
 
 \item{residual_variance}{A scalar refers to the residual variance.
 To be consistent with susieR, it should be specified when \code{W=NULL}.}
 
-\item{optimize_prior_varB}{The optimization method to use for fitting the prior
+\item{optimize_prior_varD}{The optimization method to use for fitting the prior
 variance.}
 
 \item{check_null_threshold}{Scalar specifying the threshold on the log-scale
 to compare likelihood between current estimate and zero (null).}
 
-\item{mle_variance_estimator}{The estimation method of the variance of the MLEs,
-or equivalently, the variance of (Horvitz-Thompson) ATE estimators.
-\code{"bootstrap"} estimates the variances from \code{nboots} bootstrap replicates,
-\code{"sandwich"} uses sandwich robust variance estimators.
+\item{prior_inclusions_prob}{An (p by 1) vector of prior inclusion
+probabilities.}
+
+\item{mle_var_estimator}{The estimation method of the variance of the MLEs.
 \code{"naive"} calculates the variances from the weighted least square model,
-treating weights as constants (not recommended).}
+treating weights as constants.}
 
 \item{nboots}{The number of bootstrap replicates. By default, \code{nboots=100}.}
 
 \item{seed}{Random seed utilized when \code{mle_variance_estimator="bootstrap"}.
 If \code{seed=NULL}, its default is \code{Sys.time()}.}
-
-\item{prior_inclusions_prob}{An (p by 1) vector of prior inclusion
-probabilities.}
 }
 \value{
 A list with the following elements:
@@ -72,11 +64,12 @@ coefficient is non-zero.}
 \item{logBF_model}{Log of (asymptotic) Bayes factor for the
 weighted single effect regression.}
 
-\item{prior_varB}{Prior variance (after optimization if \code{optimize_prior_varB != "none"}).}
+\item{prior_varD}{Prior variance (after optimization if \code{optimize_prior_varD != "none"}).}
 }
 \description{
 The WSER function is to compute the posterior distribution of the regression
 coefficients of a WSER model. Reference:
 \url{https://github.com/stephenslab/susieR/blob/master/R/single_effect_regression.R}
+This is basically used for function \code{gsusie}.
 }
 \keyword{internal}
