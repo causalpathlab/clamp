@@ -67,7 +67,7 @@
 
 #' @export
 #'
-clamp_get_objective <- function (res, last_only = TRUE, warning_tol = 1e-6) {
+clamp_get_objective = function (res, last_only = TRUE, warning_tol = 1e-6) {
 
   if (!all(diff(res$elbo) >= (-1*warning_tol)))
     warning("Objective is decreasing")
@@ -80,7 +80,7 @@ clamp_get_objective <- function (res, last_only = TRUE, warning_tol = 1e-6) {
 #' @rdname clamp_get_methods
 #' @export
 #'
-clamp_get_posterior_mean <- function (res, prior_tol = 1e-9) {
+clamp_get_posterior_mean = function (res, prior_tol = 1e-9) {
 
   # Drop the single-effects with estimated prior of zero.
   if (is.numeric(res$prior_varD))
@@ -154,7 +154,7 @@ clamp_get_lfsr <- function (res) {
 #'
 #' @export
 #'
-clamp_get_posterior_samples <- function (res, num_samples) {
+clamp_get_posterior_samples = function (res, num_samples) {
 
   # Remove effects having estimated prior variance equals zero.
   if (is.numeric(res$prior_varD))
@@ -230,7 +230,7 @@ clamp_get_posterior_samples <- function (res, num_samples) {
 #'
 #' @export
 #'
-clamp_get_cs <- function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
+clamp_get_cs = function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
                          min_abs_corr = 0.5, dedup = TRUE, squared = FALSE,
                          check_symmetric = TRUE, n_purity = 100, use_rfast) {
 
@@ -351,7 +351,7 @@ clamp_get_cs <- function (res, X = NULL, Xcorr = NULL, coverage = 0.95,
 #'
 #' @export
 #'
-get_cs_correlation <- function (res, X = NULL, Xcorr = NULL, max = FALSE) {
+get_cs_correlation = function (res, X = NULL, Xcorr = NULL, max = FALSE) {
   if (is.null(res$sets$cs) || length(res$sets$cs) == 1) return(NA)
   if (!is.null(X) && !is.null(Xcorr))
     stop("Only one of X or Xcorr should be specified")
@@ -364,7 +364,8 @@ get_cs_correlation <- function (res, X = NULL, Xcorr = NULL, max = FALSE) {
     Xcorr = Xcorr/2
   }
   # Get index for the best PIP per CS
-  max_pip_idx = sapply(res$sets$cs, function(cs) cs[which.max(res$pip[cs])])
+  # max_pip_idx = sapply(res$sets$cs, function(cs) cs[which.max(res$pip[cs])])
+  max_pip_idx = sapply(res$sets$cs, function(cs) cs[which.max(res$level_pip[cs])])
   if (is.null(Xcorr)) {
     X_sub = X[,max_pip_idx]
     cs_corr = muffled_corr(as.matrix(X_sub))
@@ -393,35 +394,43 @@ get_cs_correlation <- function (res, X = NULL, Xcorr = NULL, max = FALSE) {
 #'
 #' @export
 #'
-clamp_get_pip <- function (res, prune_by_cs = FALSE, prior_tol = 1e-9) {
+clamp_get_pip = function (res, prune_by_cs = FALSE, prior_tol = 1e-9) {
 
   if (inherits(res,c("clamp", "susie"))) {
 
     # Drop the single-effects with estimated prior of zero.
     if (is.numeric(res$prior_varD))
-      include_idx <- which(res$prior_varD > prior_tol)
+      include_idx = which(res$prior_varD > prior_tol)
     else
-      include_idx <- 1:nrow(res$alpha)
+      include_idx = 1:nrow(res$alpha)
 
     # Only consider variables in reported CS.
-    # By default prune_by_cs = FALSE means we do not run the
+    # This is not what we do in the SuSiE paper.
+    # So by default prune_by_cs = FALSE means we do not run the
     # following code.
     if (!is.null(res$sets$cs_index) && prune_by_cs)
-      include_idx <- intersect(include_idx,res$sets$cs_index)
+      include_idx = intersect(include_idx,res$sets$cs_index)
     if (is.null(res$sets$cs_index) && prune_by_cs)
-      include_idx <- numeric(0)
+      include_idx = numeric(0)
 
-    # Now extract relevant rows from alpha matrix
+    level_names <- colnames(res$alpha)
+    variable_names <- sub("_.*", "", colnames(res$alpha))
+
+    # now extract relevant rows from alpha matrix
     if (length(include_idx) > 0)
-      res <- res$alpha[include_idx,,drop = FALSE]
+      res = res$alpha[include_idx,,drop = FALSE]
     else
-      res <- matrix(0,1,ncol(res$alpha))
+      res = matrix(0,1,ncol(res$alpha))
 
-    # Variable PIP
-    pip <- as.vector(1 - apply(1 - res, 2, prod))
-    names(pip) <- colnames(res)
+    level_pip <- as.vector(1 - apply(1 - res,2,prod))
+    names(level_pip) <- level_names
 
-    return(pip)
+    variable_pip <- tapply(level_pip, variable_names,
+                           function(x) {1 - prod(1-x)})
+    variable_pip <- variable_pip[
+      order( as.numeric(sub("X", "", names(variable_pip))) )]
+
+    return(list(level_pip = level_pip, variable_pip = variable_pip))
 
   }
 
@@ -431,13 +440,13 @@ clamp_get_pip <- function (res, prune_by_cs = FALSE, prior_tol = 1e-9) {
 # Find how many variables in the CS.
 # x is a probability vector.
 #' @keywords internal
-n_in_CS_x <- function (x, coverage = 0.9)
+n_in_CS_x = function (x, coverage = 0.9)
   sum(cumsum(sort(x,decreasing = TRUE)) < coverage) + 1
 
 # Return binary vector indicating if each point is in CS.
 # x is a probability vector.
 #' @keywords internal
-in_CS_x <- function (x, coverage = 0.9) {
+in_CS_x = function (x, coverage = 0.9) {
   n = n_in_CS_x(x,coverage)
   o = order(x,decreasing = TRUE)
   result = rep(0,length(x))
@@ -448,14 +457,14 @@ in_CS_x <- function (x, coverage = 0.9) {
 # Returns an l-by-p binary matrix indicating which variables are in
 # susie credible sets.
 #' @keywords internal
-in_CS <- function (res, coverage = 0.9) {
+in_CS = function (res, coverage = 0.9) {
   if (inherits(res, c("clamp", "susie")))
     res = res$alpha
   return(t(apply(res,1,function(x) in_CS_x(x,coverage))))
 }
 
 #' @keywords internal
-n_in_CS <- function(res, coverage = 0.9) {
+n_in_CS = function(res, coverage = 0.9) {
   if (inherits(res,c("clamp", "susie")))
     res = res$alpha
   return(apply(res,1,function(x) n_in_CS_x(x,coverage)))
@@ -464,7 +473,7 @@ n_in_CS <- function(res, coverage = 0.9) {
 # Subsample and compute min, mean, median and max abs corr.
 #
 #' @importFrom stats median
-get_purity <- function (pos, X, Xcorr, squared = FALSE, n = 100,
+get_purity = function (pos, X, Xcorr, squared = FALSE, n = 100,
                        use_rfast) {
   if (missing(use_rfast))
     use_rfast = requireNamespace("Rfast",quietly = TRUE)
@@ -472,7 +481,7 @@ get_purity <- function (pos, X, Xcorr, squared = FALSE, n = 100,
     get_upper_tri = Rfast::upper_tri
     get_median    = Rfast::med
   } else {
-    get_upper_tri <- function (R) R[upper.tri(R)]
+    get_upper_tri = function (R) R[upper.tri(R)]
     get_median    = stats::median
   }
   if (length(pos) == 1)
@@ -593,7 +602,7 @@ clamp_prune_single_effects <- function (s, L = 0, prior_varD = NULL) {
 # \item{matrix}{The matrix with eigen decomposition}
 # \item{status}{whether A is positive semidefinite}
 # \item{eigenvalues}{eigenvalues of A truncated by r_tol}
-check_semi_pd <- function (A, tol) {
+check_semi_pd = function (A, tol) {
   attr(A,"eigen") = eigen(A,symmetric = TRUE)
   v = attr(A,"eigen")$values
   v[abs(v) < tol] = 0
@@ -611,7 +620,7 @@ check_semi_pd <- function (A, tol) {
 #  eigenvectors of A}
 # \item{msg}{msg gives the difference between the projected b and b if
 #   status is FALSE}
-check_projection <- function (A, b) {
+check_projection = function (A, b) {
   if (is.null(attr(A,"eigen")))
     attr(A,"eigen") = eigen(A,symmetric = TRUE)
   v = attr(A,"eigen")$values
@@ -628,7 +637,7 @@ check_projection <- function (A, b) {
 # @param ... warning message
 # @param style either "warning" or "hint"
 #'@importFrom crayon combine_styles
-warning_message <- function(..., style=c("warning", "hint")) {
+warning_message = function(..., style=c("warning", "hint")) {
   style = match.arg(style)
   if (style=="warning" && getOption("warn")>=0) {
     alert <- combine_styles("bold", "underline", "red")

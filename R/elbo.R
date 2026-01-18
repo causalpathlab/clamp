@@ -53,22 +53,16 @@ Eloglik <- function(X, y, s) {
 #'
 get_ERSS <- function(X, y, s) {
 
-  postd  <- s$alpha * s$mu   ## n by pcoef matrix
-  postd2 <- s$alpha * s$mu2  ## n by pcoef matrix
+  postd  <- s$alpha * s$mu   ## L by p matrix
+  postd2 <- s$alpha * s$mu2  ## L by p matrix
 
-  K_minus_1_dummy_indices <- attr(X, "K_minus_1_dummy_indices")
-  if (ncol(postd) != length(K_minus_1_dummy_indices)) {
-    stop("Column dimension of X does not match!")
-  }
-
-  X_K_minus_1_scaled_center <- attr(X, "scaled:center")[K_minus_1_dummy_indices]
-  X_K_minus_1_centralized <-
-    sweep(X[, K_minus_1_dummy_indices, drop=F], 2, X_K_minus_1_scaled_center, "-")
+  X_scaled_center <- attr(X, "scaled:center")
+  X_centralized <- sweep(X, 2, X_scaled_center, "-")
 
   res <- sum( (y - s$Xr -
-              mean(y) + sum( postd %*% as.matrix(X_K_minus_1_scaled_center) ) )^2 ) +
-    sum( tcrossprod(colSums2(X_K_minus_1_centralized^2), postd2) )-
-    sum( (tcrossprod(X_K_minus_1_centralized, postd))^2 )
+              mean(y) + sum( postd %*% as.matrix(X_scaled_center) ) )^2 ) +
+    sum( tcrossprod(colSums2(X_centralized^2), postd2) ) -
+    sum( (tcrossprod(X_centralized, postd))^2 )
 
   return(res)
 }

@@ -78,6 +78,7 @@ clamp_update_each_effect_binary <- function (X, y, s, W=NULL,
 
   # Compute the residuals
   current_R <- y - s$Xr
+  current_R <- as.vector(current_R)  # Ensure it's a proper vector
 
   # Robust estimation regarding W/residuals.
   # The importance weights are assigned to each observation.

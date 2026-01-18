@@ -373,8 +373,7 @@ clamp_binary <- function (X, y,
     # Compute objective before updating residual variance because part
     # of the objective s$kl has already been computed under the
     # residual variance before the update.
-    # elbo[tt+1] = get_elbo(X, y, s, W)
-    elbo[tt+1]   = get_elbo(s)
+    elbo[tt+1]   = get_elbo(X, y, s)
     WRSS[tt+1]   = mean(s$EWR2)
     loglik[tt+1] = mean(s$Eloglik)
 
@@ -472,12 +471,28 @@ clamp_binary <- function (X, y,
   if (track_fit)
     s$trace = tracking
 
+  # Name the alpha matrix first (needed for PIP computation)
+  variable_names <- colnames(X)
+  colnames(s$alpha) <- variable_names
+  colnames(s$mu) <- variable_names
+  colnames(s$mu2) <- variable_names
+  colnames(s$deltahat) <- variable_names
+  colnames(s$logBF_variable) <- variable_names
+
   # Credible Sets and PIPs
   if (!is.null(coverage) && !is.null(min_abs_corr)) {
-    s$sets = clamp_get_cs(s,coverage = coverage,X = X,
-                                  min_abs_corr = min_abs_corr,
-                                  n_purity = n_purity)
+    # For binary data, compute PIPs directly
     s$pip = clamp_get_pip(s,prune_by_cs = FALSE,prior_tol = prior_tol)
+
+    # Try to compute credible sets, but skip if there's an error
+    s$sets = tryCatch({
+      clamp_get_cs(s,coverage = coverage,X = X,
+                  min_abs_corr = min_abs_corr,
+                  n_purity = n_purity)
+    }, error = function(e) {
+      warning("Could not compute credible sets: ", e$message)
+      list(cs = NULL, coverage = NULL, requested_coverage = coverage)
+    })
   }
 
   # (Re)name the outputs

@@ -34,7 +34,7 @@
 #'    \emph{posterior mean} (\code{posterior_mean}),
 #'    \emph{posterior sd} (\code{posterior_sd}),
 #'    and, if \code{cred_int=TRUE}, \emph{credible interval}
-#'    (\code{crI_low} and \code{crI_up})
+#'    (\code{crI_lower} and \code{crI_upper})
 #'    of each variable.
 #'
 #' @rdname clamp_summarize_coefficients
@@ -51,21 +51,25 @@ clamp_summarize_coefficients <- function(object,
                                          coverage = 0.95,
                                          digits = 4) {
 
-  if (is.null(object$pip) || is.null(object$mu) || is.null(object$mu2))
+  if (is.null(object$level_pip) || is.null(object$mu) || is.null(object$mu2))
     stop("Either PIP, mu, or mu2 is not available.")
 
   # extract variable names
-  if (is.null(names(object$pip))) {
-    variable_names <- 1:length(object$pip)
+  if (is.null(names(object$level_pip))) {
+    level_names <- 1:length(object$level_pip)
+    variable_names <- 1:length(object$variable_pip)
   } else {
-    variable_names <- names(object$pip)
+    level_names <- names(object$level_pip)
+    variable_names <- sapply(strsplit(names(object$level_pip), "_"), `[`, 1)
   }
 
   output <- data.frame(
     variable  = variable_names,
-    pip = object$pip,
+    level     = level_names,
+    level_pip = object$level_pip,
     posterior_mean  = clamp_get_posterior_mean(object),
-    posterior_sd    = clamp_get_posterior_sd(object)
+    posterior_sd    = clamp_get_posterior_sd(object),
+    variable_pip = object$variable_pip[variable_names]
   )
 
   if (credible_interval) {
@@ -73,13 +77,14 @@ clamp_summarize_coefficients <- function(object,
       stop("Input probability should between 0 and 1")
     }
 
-    output$crI_low <- output$posterior_mean +
+    output$crI_lower <- output$posterior_mean +
       qnorm((1 - coverage)/2) * output$posterior_sd
-    output$crI_up <- output$posterior_mean -
+    output$crI_upper <- output$posterior_mean -
       qnorm((1 - coverage)/2) * output$posterior_sd
   }
 
-  output <- output[order( output$pip,
+  output <- output[order( output$level_pip,
+                          output$variable_pip,
                           abs(output$posterior_mean),
                           decreasing = decreasing ), , drop=F]
 
@@ -91,10 +96,12 @@ clamp_summarize_coefficients <- function(object,
   }
 
   if (is.null(subset_variables)) {
-    num_variables_output <- min(top_n, length(object$pip))
+    num_variables_output <- min(top_n, length(object$variable_pip))
+    num_levels_output <- num_variables_output *
+      ( length(object$level_pip) %/% length(object$variable_pip) )
 
     print.data.frame(
-      output[1:num_variables_output, , drop=F], row.names = F
+      output[1:num_levels_output, , drop=F], row.names = F
       )
 
   } else {

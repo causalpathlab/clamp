@@ -89,12 +89,15 @@ init_setup <- function (n, p, maxL, family,
            Xr     = rep(0,n),
            # KL     = rep(as.numeric(NA),maxL),
            # EWR2 = rep(as.numeric(NA), maxL),
+           EWR2 = rep(as.numeric(NA), maxL),
            Eloglik = rep(as.numeric(NA), maxL),
            logBF  = rep(as.numeric(NA),maxL),
            logBF_variable = matrix(as.numeric(NA),maxL,p),
            sigma2 = residual_variance,           ## residual variance
            prior_varD = prior_varD,         ## prior variance of coefficients b
-           pie    = prior_inclusion_prob)
+           pie    = prior_inclusion_prob,
+           abnormal_subjects = NULL,        ## abnormal subject indices
+           importance_weight = rep(1, n))   ## importance weights for robust methods
 
   if (family == "linear") class(s) = "clamp"
   else class(s) = "gsusie"
