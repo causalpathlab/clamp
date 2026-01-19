@@ -7,14 +7,14 @@ library(Matrix)
 library(matrixStats)
 library(sandwich)
 
-set.seed(123)
+set.seed(456)
 
 # ============================================================================
 # 1. Simulate Data
 # ============================================================================
 
 n <- 1000  # number of samples
-p <- 10    # number of treatments
+p <- 20    # number of treatments
 
 # Generate 1-dimensional confounder
 Z <- rnorm(n, mean = 0, sd = 1)
@@ -58,6 +58,11 @@ delta_3 <- 3.0               # true causal effect of X3
 delta_7 <- -2.5              # true causal effect of X7
 sigma <- 1.0                 # residual standard deviation
 
+# Create delta vector for all variables
+delta <- rep(0, p)
+delta[3] <- delta_3
+delta[7] <- delta_7
+
 # Generate response
 y <- gamma_0 +
      gamma_Z * Z +
@@ -81,12 +86,17 @@ cat("\n")
 W <- matrix(0, nrow = n, ncol = p)
 colnames(W) <- paste0("X", 1:p)
 
+# Matrix to store propensity scores
+PS <- matrix(0, nrow = n, ncol = p)
+colnames(PS) <- paste0("X", 1:p)
+
 for (j in 1:p) {
   # Fit logistic regression: P(X[,j] = 1 | Z)
   glm_fit <- glm(X[, j] ~ Z, family = binomial(link = "logit"))
 
   # Predicted propensity scores
   ps <- predict(glm_fit, type = "response")
+  PS[, j] <- ps  # Store propensity scores
 
   # Compute IPW: w_ij = X_ij / ps_i + (1 - X_ij) / (1 - ps_i)
   # But in clamp, we use: w_ij = 1/ps_i when X_ij = 1, and 1/(1-ps_i) when X_ij = 0
@@ -104,6 +114,26 @@ for (j in 1:p) {
               j, min(W[, j]), max(W[, j]), mean(W[, j])))
 }
 cat("\n")
+
+# ============================================================================
+# 4.5 Propensity Score Correlation Plot
+# ============================================================================
+
+cat("Propensity Score Correlation Analysis:\n")
+
+# Compute correlation matrix of propensity scores
+ps_cor <- cor(PS)
+
+cat("Correlation matrix of propensity scores:\n")
+print(round(ps_cor, 3))
+cat("\n")
+
+# Create a simple text-based visualization of the correlation matrix
+cat("Propensity Score Correlation Heatmap:\n")
+cat("(Values close to 1 indicate high positive correlation with confounding)\n")
+cat(sprintf("Mean correlation: %.3f\n", mean(ps_cor[lower.tri(ps_cor)])))
+cat(sprintf("Max correlation: %.3f\n", max(ps_cor[ps_cor < 1])))
+cat(sprintf("Min correlation: %.3f\n\n", min(ps_cor[ps_cor < 1])))
 
 # ============================================================================
 # 5. Run clamp_binary()
@@ -129,6 +159,8 @@ source("../R/estimate_residual_variance.R")
 source("../R/optimize_prior_variance.R")
 source("../R/model_weighted_linear.R")
 source("../R/clamp_utils.R")
+source("../R/clamp_summarize_coefficients.R")
+source("../R/summary.clamp.R")
 
 # Fit clamp_binary model
 fit <- clamp_binary(
@@ -228,3 +260,98 @@ cat("\n")
 
 cat(rep("=", 70), "\n", sep = "")
 cat("Test completed successfully!\n")
+
+cat("\nclamp_binary Results:\n")
+clamp_summarize_coefficients(fit)
+
+# ============================================================================
+# 8. Comparison with susieR::susie()
+# ============================================================================
+
+cat("\n\n")
+cat(rep("=", 70), "\n", sep = "")
+cat("COMPARISON WITH susieR::susie()\n")
+cat(rep("=", 70), "\n", sep = "")
+cat("\n")
+
+# Load susieR if not already loaded
+if (!require(susieR, quietly = TRUE)) {
+  install.packages("susieR")
+  library(susieR)
+}
+
+cat("Running susieR::susie() WITHOUT IPW adjustment...\n")
+cat("(This should fail to detect true causal variables due to confounding)\n\n")
+
+# Run susie without IPW adjustment
+susie_fit <- susie(X, y, L = 5, verbose = FALSE)
+
+cat("susieR Results (NO IPW):\n")
+cat("Posterior Inclusion Probabilities:\n")
+susie_pip <- susie_fit$pip
+names(susie_pip) <- colnames(X)
+susie_pip_sorted <- sort(susie_pip, decreasing = TRUE)
+
+for (i in 1:length(susie_pip_sorted)) {
+  var_idx <- as.numeric(sub("X", "", names(susie_pip_sorted)[i]))
+  marker <- if (var_idx %in% true_causal_vars) " ***" else ""
+  cat(sprintf("  %s: %.4f%s\n", names(susie_pip_sorted)[i],
+              susie_pip_sorted[i], marker))
+}
+cat("  (*** indicates true causal variable)\n\n")
+
+# Compute posterior means for susie
+susie_coef <- coef(susie_fit)
+susie_post_mean <- susie_coef[-1]  # Remove intercept
+names(susie_post_mean) <- colnames(X)
+
+cat("Posterior Mean Effects:\n")
+susie_pm_sorted <- susie_post_mean[names(susie_pip_sorted)]
+for (i in 1:length(susie_pm_sorted)) {
+  var_idx <- as.numeric(sub("X", "", names(susie_pm_sorted)[i]))
+  marker <- if (var_idx %in% true_causal_vars) " ***" else ""
+  true_val <- delta[var_idx]
+  cat(sprintf("  %s: %.4f (true: %.2f)%s\n",
+              names(susie_pm_sorted)[i], susie_pm_sorted[i], true_val, marker))
+}
+cat("\n")
+
+# ============================================================================
+# 9. Summary Comparison
+# ============================================================================
+
+cat("\n")
+cat(rep("=", 70), "\n", sep = "")
+cat("SUMMARY COMPARISON\n")
+cat(rep("=", 70), "\n", sep = "")
+cat("\n")
+
+comparison <- data.frame(
+  Variable = colnames(X),
+  True_Effect = delta,
+  clamp_PIP = fit$pip,
+  susie_PIP = susie_pip,
+  clamp_Effect = colSums(fit$alpha * fit$mu),
+  susie_Effect = susie_post_mean
+)
+
+# Sort by clamp PIP
+comparison <- comparison[order(comparison$clamp_PIP, decreasing = TRUE), ]
+
+cat("Comparison Table (sorted by clamp_binary PIP):\n\n")
+# Round only numeric columns
+comparison_print <- comparison
+numeric_cols <- sapply(comparison, is.numeric)
+comparison_print[, numeric_cols] <- round(comparison[, numeric_cols], 4)
+print(comparison_print, row.names = FALSE)
+
+cat("\n\nDetection Performance (PIP > 0.5):\n")
+cat(sprintf("  clamp_binary (WITH IPW): %d/%d true variables detected\n",
+            sum(fit$pip[true_causal_vars] > 0.5), length(true_causal_vars)))
+cat(sprintf("  susieR (NO IPW): %d/%d true variables detected\n",
+            sum(susie_pip[true_causal_vars] > 0.5), length(true_causal_vars)))
+
+cat("\n")
+cat(rep("=", 70), "\n", sep = "")
+cat("COMPARISON COMPLETE\n")
+cat(rep("=", 70), "\n", sep = "")
