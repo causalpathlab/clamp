@@ -30,10 +30,10 @@
 #' to compare likelihood between current estimate and zero (null).
 #'
 #' @param mle_estimator The estimation method of the MLEs of the ATEs.
-#' \code{"ipw"} estimates the ATE with inverse probability weighting estimator,
-#' and \code{"wls"} applies the equivalent weighted least-squares estimator.
-#' The estimates from these two values should be the same if the input X is not
-#' centralized and standardized.
+#' \code{"ipw"} estimates the ATE with inverse probability weighting estimator.
+#' # and \code{"wls"} applies the equivalent weighted least-squares estimator.
+#' # The estimates from these two values should be the same if the input X is not
+#' # centralized and standardized.
 #'
 #' @param mle_variance_estimator The estimation method of the variance of the MLEs,
 #' or equivalently, the variance of (Horvitz-Thompson) ATE estimators.
@@ -80,7 +80,7 @@ ipw_single_effect_regression_binary <-
            prior_inclusion_prob = NULL,
            optimize_prior_varD = c("none", "optim", "EM", "simple"),
            check_null_threshold = 0,
-           mle_estimator = c("mHT", "WLS"),
+           mle_estimator = c("mHT"), # "WLS"
            mle_variance_estimator = c("bootstrap", "sandwich"),
            nboots = 100,
            seed = NULL) {

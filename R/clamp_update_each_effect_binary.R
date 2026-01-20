@@ -11,8 +11,8 @@
 #' SER
 #'
 #' @param mle_estimator The estimation method of the ATE estimator.
-#' \code{"mHT"} applies the modified Horvitz-Thompson estimator, and
-#' \code{"WLS"} applies the equivalent weighted least-squares estimator.
+#' \code{"mHT"} applies the modified Horvitz-Thompson estimator.
+#' # \code{"WLS"} applies the equivalent weighted least-squares estimator.
 #'
 #' @param mle_variance_estimator The estimation method of the variance of the
 #' MLEs, or equivalently, the variance of (Horvitz-Thompson) ATE estimators.
@@ -52,7 +52,7 @@
 #'   \code{robust_estimator="S"} indicates the S-estimator is applied.
 #'
 clamp_update_each_effect_binary <- function (X, y, s, W=NULL,
-                  mle_estimator = c("mHT", "WLS"),
+                  mle_estimator = c("mHT"), # "WLS"
                   mle_variance_estimator = c("bootstrap", "sandwich"),
                   nboots = 100,
                   seed = NULL,
