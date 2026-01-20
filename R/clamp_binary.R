@@ -212,9 +212,9 @@
 #' @export
 #'
 clamp_binary <- function (X, y,
-                   W = NULL, ## IPW matrix, should be of same size of X
+                   W = NULL, ## Weight matrix, should be of same size of X
                    maxL = min(10,ncol(X)),
-                   # family = "linear",
+                   family = "linear",
                    scaled_prior_variance = 0.2,
                    residual_variance = NULL,
                    prior_inclusion_prob = NULL,
@@ -225,7 +225,7 @@ clamp_binary <- function (X, y,
                    estimate_prior_method = c("optim", "EM", "simple"),
                    check_null_threshold = 0,
                    mle_estimator = c("mHT", "WLS"),
-                   mle_variance_estimator = c("bootstrap", "sandwich", "naive"),
+                   mle_variance_estimator = c("bootstrap", "sandwich"),
                    nboots = 100,
                    seed = NULL,
                    burn_in = 10,
